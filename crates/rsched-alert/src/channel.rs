@@ -82,14 +82,25 @@ impl Channel for WebhookChannel {
 
 /// Try to deliver `payload` across each configured channel; log+swallow per-
 /// channel failures so a single bad URL doesn't block the others.
+///
+/// Email delivery requires SMTP credentials in env (RSCHED_SMTP_*); when
+/// absent the email channel is logged-and-skipped instead of erroring the
+/// whole batch.
 pub async fn deliver_all(channels: &[AlertChannel], payload: &AlertPayload) {
+    let smtp_cfg = crate::SmtpConfig::from_env();
     for ch in channels {
         let result = match ch {
             AlertChannel::Slack { webhook_url } => {
                 SlackChannel::new(webhook_url).deliver(payload).await
             }
             AlertChannel::Webhook { url, .. } => WebhookChannel::new(url).deliver(payload).await,
-            AlertChannel::Email { .. } => Err(AlertError::Unsupported("email (M6.1)")),
+            AlertChannel::Email { to } => match &smtp_cfg {
+                Some(cfg) => match crate::EmailChannel::new(cfg.clone(), to.clone()) {
+                    Ok(ch) => ch.deliver(payload).await,
+                    Err(e) => Err(e),
+                },
+                None => Err(AlertError::SmtpNotConfigured),
+            },
         };
         if let Err(e) = result {
             warn!(error = %e, "alert delivery failed");

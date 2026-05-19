@@ -18,7 +18,11 @@ pub fn router(state: AppState) -> Router {
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
         .route("/api/v1/jobs", get(list_jobs).post(create_job))
-        .route("/api/v1/jobs/:id", get(get_job).delete(delete_job))
+        .route(
+            "/api/v1/jobs/:id",
+            get(get_job).delete(delete_job).put(update_job),
+        )
+        .route("/api/v1/jobs/by-name/:name", get(get_job_by_name))
         .route("/api/v1/jobs/:id/pause", post(pause_job))
         .route("/api/v1/jobs/:id/resume", post(resume_job))
         .route("/api/v1/jobs/:id/trigger", post(trigger_job))
@@ -177,6 +181,61 @@ async fn trigger_job(
     // Run row is created by the tick loop when it picks the job up (within ~1s).
     let run = rsched_core::Run::new(id, 1);
     Ok(Json(run))
+}
+
+async fn get_job_by_name(
+    State(s): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<Job>, ApiError> {
+    Ok(Json(s.store.jobs().get_by_name(&name).await?))
+}
+
+async fn update_job(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<CreateJobReq>,
+) -> Result<Json<JobResp>, ApiError> {
+    let id: JobId = id
+        .parse()
+        .map_err(|_| ApiError::Validation("bad job id".into()))?;
+    let existing = s.store.jobs().get(id).await?;
+    let now = chrono::Utc::now();
+    let trigger = req.trigger.clone();
+    let retry = req.retry.unwrap_or(existing.retry.clone());
+    let next_fire_at = match &trigger {
+        Trigger::Cron { expr, timezone } => Some(next_fire(expr, timezone.as_deref(), now)?),
+        Trigger::Interval { every, start_at } => {
+            Some(start_at.unwrap_or(now + chrono::Duration::from_std(*every).unwrap()))
+        }
+        Trigger::OneShot { at } => Some(*at),
+        _ => None,
+    };
+    let job = Job {
+        id,
+        name: req.name,
+        box_id: existing.box_id,
+        trigger,
+        cmd: req.cmd,
+        args: req.args,
+        env: req.env,
+        cwd: req.cwd,
+        shell: req.shell,
+        target: req.target.unwrap_or(existing.target),
+        retry,
+        timeout_secs: req.timeout_secs,
+        sla_secs: req.sla_secs,
+        calendar_id: existing.calendar_id,
+        misfire: req.misfire,
+        dependencies: existing.dependencies,
+        paused: existing.paused,
+        alerts: req.alerts,
+        created_at: existing.created_at,
+        updated_at: now,
+        next_fire_at,
+    };
+    job.validate()?;
+    s.store.jobs().update(&job).await?;
+    Ok(Json(JobResp { job }))
 }
 
 async fn list_runs_for_job(
