@@ -8,4 +8,15 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+rsched-core = { path = "../rsched-core" }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+wiremock = { workspace = true }
