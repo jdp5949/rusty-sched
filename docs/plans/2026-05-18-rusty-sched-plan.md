@@ -1,7 +1,7 @@
 # rusty-sched — Implementation Plan (v1)
 
 **Date:** 2026-05-18
-**Spec:** [`docs/superpowers/specs/2026-05-18-rusty-sched-design.md`](../specs/2026-05-18-rusty-sched-design.md)
+**Spec:** [`docs/specs/2026-05-18-rusty-sched-design.md`](../specs/2026-05-18-rusty-sched-design.md)
 **Workflow:** every milestone = own feature branch + PR + review → merge to main.
 
 ## Milestones (vertical slices, each shippable)
