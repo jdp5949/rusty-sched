@@ -164,9 +164,18 @@ async fn trigger_job(
     let id: JobId = id
         .parse()
         .map_err(|_| ApiError::Validation("bad job id".into()))?;
+    // Verify job exists.
     let _job = s.store.jobs().get(id).await?;
+    // Set next_fire_at = now so the scheduler tick will dispatch on its next
+    // iteration. This works uniformly for any trigger kind (cron / manual /
+    // dep / etc.) — manual + dep just normally have next_fire_at = NULL.
+    s.store
+        .jobs()
+        .set_next_fire(id, Some(chrono::Utc::now()))
+        .await?;
+    // Return a stub run record so the CLI has something to print; the actual
+    // Run row is created by the tick loop when it picks the job up (within ~1s).
     let run = rsched_core::Run::new(id, 1);
-    s.store.runs().insert(&run).await?;
     Ok(Json(run))
 }
 
@@ -309,7 +318,9 @@ mod tests {
             .unwrap();
         let bytes = axum::body::to_bytes(r.into_body(), 65536).await.unwrap();
         let runs: Vec<rsched_core::Run> = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(runs.len(), 1);
+        // trigger no longer creates a Run row directly — it sets next_fire_at
+        // and the tick loop creates the Run. So we expect 0 here.
+        assert_eq!(runs.len(), 0);
     }
 
     #[tokio::test]
