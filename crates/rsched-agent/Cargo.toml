@@ -8,4 +8,15 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+rsched-core = { path = "../rsched-core" }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+futures = { workspace = true }
