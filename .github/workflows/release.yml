@@ -1,0 +1,87 @@
+name: release
+
+# Builds the `rusty-sched` binary for all supported targets and uploads
+# them as release assets. Triggers on a tag like `v0.1.0`. Uses cargo-dist
+# in spirit but rolled by hand to keep the toolchain matrix explicit.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,  target: x86_64-unknown-linux-gnu,    bin: rusty-sched,     archive: tar.gz }
+          - { os: ubuntu-latest,  target: x86_64-unknown-linux-musl,   bin: rusty-sched,     archive: tar.gz, musl: true }
+          - { os: ubuntu-latest,  target: aarch64-unknown-linux-gnu,   bin: rusty-sched,     archive: tar.gz, cross: true }
+          - { os: macos-latest,   target: x86_64-apple-darwin,         bin: rusty-sched,     archive: tar.gz }
+          - { os: macos-latest,   target: aarch64-apple-darwin,        bin: rusty-sched,     archive: tar.gz }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc,      bin: rusty-sched.exe, archive: zip }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: '${{ matrix.target }}' }
+      - uses: Swatinem/rust-cache@v2
+      - name: Install musl-tools
+        if: matrix.musl
+        run: sudo apt-get install -y musl-tools
+      - name: Install cross
+        if: matrix.cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+      - name: Build
+        shell: bash
+        run: |
+          if [[ "${{ matrix.cross }}" == "true" ]]; then
+            cross build --release --target ${{ matrix.target }} -p rusty-sched
+          else
+            cargo build --release --target ${{ matrix.target }} -p rusty-sched
+          fi
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="rusty-sched-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          dist="dist/${name}"
+          mkdir -p "$dist"
+          cp "target/${{ matrix.target }}/release/${{ matrix.bin }}" "$dist/"
+          cp README.md LICENSE 2>/dev/null || true
+          cd dist
+          if [[ "${{ matrix.archive }}" == "zip" ]]; then
+            7z a "${name}.zip" "${name}"
+          else
+            tar -czf "${name}.tar.gz" "${name}"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: dist/*.${{ matrix.archive }}
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: List artifacts
+        run: ls -la dist/
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}

@@ -1,0 +1,28 @@
+[Unit]
+Description=rusty-sched scheduler server
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/rusty-sched server
+Restart=always
+RestartSec=5
+User=rusty-sched
+Group=rusty-sched
+StateDirectory=rusty-sched
+LogsDirectory=rusty-sched
+ConfigurationDirectory=rusty-sched
+Environment=RUST_LOG=info
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+LockPersonality=true
+RestrictRealtime=true
+
+[Install]
+WantedBy=multi-user.target
