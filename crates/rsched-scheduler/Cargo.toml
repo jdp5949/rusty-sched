@@ -8,4 +8,15 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+rsched-core = { path = "../rsched-core" }
+rsched-store = { path = "../rsched-store" }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+chrono-tz = { workspace = true }
+croner = "2"
 thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
