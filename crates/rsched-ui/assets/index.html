@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>rusty-sched</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-900">
+<div id="root"></div>
+
+<script type="text/babel">
+const API = "/api/v1";
+const { useState, useEffect } = React;
+
+function api(method, path, body) {
+  return fetch(API + path, {
+    method,
+    headers: body ? { "content-type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : null,
+  }).then(async r => {
+    if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
+    return r.status === 204 ? null : r.json();
+  });
+}
+
+function Header() {
+  return (
+    <header className="bg-gradient-to-r from-orange-500 to-red-600 text-white px-6 py-4 shadow">
+      <div className="max-w-6xl mx-auto flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-2xl">⚙️</span>
+          <h1 className="text-xl font-bold">rusty-sched</h1>
+          <span className="text-orange-200 text-sm">job scheduler</span>
+        </div>
+        <a href="https://github.com/jdp5949/rusty-sched" className="text-sm hover:underline">★ GitHub</a>
+      </div>
+    </header>
+  );
+}
+
+function NewJobForm({ onCreated }) {
+  const [name, setName] = useState("");
+  const [cron, setCron] = useState("*/5 * * * *");
+  const [cmd, setCmd] = useState("echo hello");
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    setErr(null);
+    setBusy(true);
+    try {
+      await api("POST", "/jobs", {
+        name,
+        trigger: { kind: "cron", expr: cron },
+        cmd,
+      });
+      setName("");
+      onCreated();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="bg-white border border-slate-200 rounded-xl p-5 mb-6 shadow-sm">
+      <h2 className="font-semibold mb-3">Create job</h2>
+      <div className="grid md:grid-cols-3 gap-3">
+        <input className="border border-slate-300 rounded px-3 py-2 text-sm" placeholder="name" value={name} onChange={e=>setName(e.target.value)} required />
+        <input className="border border-slate-300 rounded px-3 py-2 text-sm mono" placeholder="cron expression" value={cron} onChange={e=>setCron(e.target.value)} required />
+        <input className="border border-slate-300 rounded px-3 py-2 text-sm mono" placeholder="command" value={cmd} onChange={e=>setCmd(e.target.value)} required />
+      </div>
+      <button disabled={busy} className="mt-3 bg-orange-600 text-white text-sm px-4 py-2 rounded hover:bg-orange-700 disabled:opacity-50">
+        {busy ? "creating…" : "Create"}
+      </button>
+      {err && <div className="mt-2 text-red-600 text-sm">{err}</div>}
+    </form>
+  );
+}
+
+function JobRow({ job, onChange }) {
+  const [runs, setRuns] = useState(null);
+  async function act(path) {
+    await api("POST", `/jobs/${job.id}/${path}`);
+    onChange();
+  }
+  async function loadRuns() {
+    setRuns(await api("GET", `/jobs/${job.id}/runs`));
+  }
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-4 mb-3 shadow-sm">
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="font-semibold">{job.name} {job.paused && <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded ml-2">paused</span>}</div>
+          <div className="text-xs text-slate-500 mono">{job.id}</div>
+          <div className="text-sm mt-1 mono text-slate-700">{job.cmd}</div>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => act("trigger")} className="text-xs bg-orange-100 text-orange-700 px-3 py-1 rounded hover:bg-orange-200">Trigger</button>
+          {job.paused
+            ? <button onClick={() => act("resume")} className="text-xs bg-green-100 text-green-700 px-3 py-1 rounded hover:bg-green-200">Resume</button>
+            : <button onClick={() => act("pause")} className="text-xs bg-slate-100 text-slate-700 px-3 py-1 rounded hover:bg-slate-200">Pause</button>}
+          <button onClick={loadRuns} className="text-xs border border-slate-300 px-3 py-1 rounded hover:bg-slate-50">Runs</button>
+        </div>
+      </div>
+      <div className="mt-2 text-xs text-slate-500 flex gap-4">
+        <span>trigger: <span className="mono">{job.trigger.kind}</span></span>
+        {job.next_fire_at && <span>next: <span className="mono">{new Date(job.next_fire_at).toLocaleString()}</span></span>}
+        <span>timeout: <span className="mono">{job.timeout_secs || '∞'}s</span></span>
+        <span>retry: <span className="mono">{job.retry.max_attempts}</span></span>
+      </div>
+      {runs && (
+        <div className="mt-3 border-t border-slate-100 pt-2">
+          <div className="text-xs font-semibold text-slate-600 mb-2">Recent runs ({runs.length})</div>
+          {runs.length === 0 && <div className="text-xs text-slate-400">none</div>}
+          {runs.map(r => (
+            <div key={r.id} className="text-xs flex gap-3 py-1 mono">
+              <span className={r.state === 'success' ? 'text-green-600' : r.state === 'failed' ? 'text-red-600' : 'text-slate-600'}>
+                {r.state}
+              </span>
+              <span className="text-slate-500">attempt {r.attempt}</span>
+              <span className="text-slate-400">{new Date(r.queued_at).toLocaleString()}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function App() {
+  const [jobs, setJobs] = useState(null);
+  const [err, setErr] = useState(null);
+
+  async function load() {
+    try {
+      setJobs(await api("GET", "/jobs"));
+      setErr(null);
+    } catch (e) {
+      setErr(e.message);
+    }
+  }
+  useEffect(() => { load(); const id = setInterval(load, 5000); return () => clearInterval(id); }, []);
+
+  return (
+    <>
+      <Header />
+      <div className="max-w-6xl mx-auto px-6 py-6">
+        <NewJobForm onCreated={load} />
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-semibold">Jobs {jobs && <span className="text-slate-500 text-sm">({jobs.length})</span>}</h2>
+          <button onClick={load} className="text-xs text-slate-600 hover:text-slate-900">↻ refresh</button>
+        </div>
+        {err && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded text-sm mb-3">{err}</div>}
+        {jobs === null && <div className="text-slate-500 text-sm">loading…</div>}
+        {jobs && jobs.length === 0 && <div className="text-slate-500 text-sm">No jobs yet. Create one above.</div>}
+        {jobs && jobs.map(j => <JobRow key={j.id} job={j} onChange={load} />)}
+      </div>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
