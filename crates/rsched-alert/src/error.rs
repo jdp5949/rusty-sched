@@ -1,0 +1,17 @@
+//! Alert errors.
+
+use thiserror::Error;
+
+/// Errors from alert delivery.
+#[derive(Debug, Error)]
+pub enum AlertError {
+    /// HTTP failure.
+    #[error("http: {0}")]
+    Http(#[from] reqwest::Error),
+    /// JSON serialization failure.
+    #[error("json: {0}")]
+    Json(#[from] serde_json::Error),
+    /// Channel kind not yet supported.
+    #[error("unsupported channel: {0}")]
+    Unsupported(&'static str),
+}
