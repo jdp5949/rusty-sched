@@ -12,9 +12,21 @@ name = "rusty-sched"
 path = "src/main.rs"
 
 [dependencies]
-tokio = { workspace = true }
-clap = { workspace = true }
+rsched-agent = { path = "../rsched-agent" }
+rsched-alert = { path = "../rsched-alert" }
+rsched-api = { path = "../rsched-api" }
+rsched-cli = { path = "../rsched-cli" }
+rsched-core = { path = "../rsched-core" }
+rsched-scheduler = { path = "../rsched-scheduler" }
+rsched-store = { path = "../rsched-store" }
+rsched-ui = { path = "../rsched-ui" }
 anyhow = { workspace = true }
+axum = { workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true }
+directories = { workspace = true }
+futures = { workspace = true }
+tokio = { workspace = true }
+tower-http = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-rsched-core = { path = "../rsched-core" }
