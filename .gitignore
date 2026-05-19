@@ -1,0 +1,30 @@
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Build artifacts
+/dist
+/ui/node_modules
+/ui/dist
+/ui/.vite
+
+# Local data
+*.db
+*.db-wal
+*.db-shm
+/data
+/logs
+
+# Env
+.env
+.env.local
