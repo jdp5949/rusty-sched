@@ -225,6 +225,66 @@ impl<'a> JobRepo<'a> {
             .await?;
         Ok(())
     }
+
+    /// Replace a job's mutable fields (everything except id + created_at).
+    pub async fn update(&self, job: &Job) -> Result<(), StoreError> {
+        job.validate()?;
+        let trigger_kind = trigger_kind_str(job.trigger.kind());
+        let trigger_json = serde_json::to_string(&job.trigger)?;
+        let args_json = serde_json::to_string(&job.args)?;
+        let env_json = serde_json::to_string(&job.env)?;
+        let target_json = serde_json::to_string(&job.target)?;
+        let retry_json = serde_json::to_string(&job.retry)?;
+        let alert_json = serde_json::to_string(&job.alerts)?;
+        let shell = serde_json::to_value(job.shell)?
+            .as_str()
+            .unwrap_or("auto")
+            .to_string();
+        let misfire = serde_json::to_value(job.misfire)?
+            .as_str()
+            .unwrap_or("fire_once")
+            .to_string();
+        let box_id = job.box_id.as_ref().map(|b| b.to_string());
+        let calendar_id = job.calendar_id.as_ref().map(|c| c.to_string());
+        let timeout = job.timeout_secs as i64;
+        let sla = job.sla_secs as i64;
+        let paused = job.paused as i64;
+        let updated = Utc::now().to_rfc3339();
+        let next_fire = job.next_fire_at.map(|t| t.to_rfc3339());
+
+        sqlx::query(
+            r#"UPDATE jobs SET
+                name = ?, box_id = ?, trigger_kind = ?, trigger_data_json = ?,
+                cmd = ?, args_json = ?, env_json = ?, cwd = ?, shell = ?,
+                target_json = ?, retry_json = ?, timeout_secs = ?, sla_secs = ?,
+                calendar_id = ?, misfire_policy = ?, paused = ?,
+                alert_config_json = ?, updated_at = ?, next_fire_at = ?
+              WHERE id = ?"#,
+        )
+        .bind(&job.name)
+        .bind(box_id)
+        .bind(trigger_kind)
+        .bind(trigger_json)
+        .bind(&job.cmd)
+        .bind(args_json)
+        .bind(env_json)
+        .bind(&job.cwd)
+        .bind(shell)
+        .bind(target_json)
+        .bind(retry_json)
+        .bind(timeout)
+        .bind(sla)
+        .bind(calendar_id)
+        .bind(misfire)
+        .bind(paused)
+        .bind(alert_json)
+        .bind(updated)
+        .bind(next_fire)
+        .bind(job.id.to_string())
+        .execute(self.pool)
+        .await?;
+        Ok(())
+    }
 }
 
 fn row_to_job(row: &sqlx::sqlite::SqliteRow) -> Result<Job, StoreError> {

@@ -1,8 +1,7 @@
 //! rsched-alert — alert delivery + SLA evaluation.
 //!
-//! Implements Slack + generic Webhook channels via reqwest+rustls. SMTP is
-//! stubbed for now (M6.1) — its delivery path is identical and the trait
-//! `Channel` keeps the route open.
+//! Channels: Slack (webhook), generic Webhook (POST JSON), Email (SMTP via
+//! lettre + rustls). All delivered concurrently per [`deliver_all`].
 
 #![warn(missing_docs)]
 
@@ -10,8 +9,10 @@ mod channel;
 mod error;
 mod payload;
 mod sla;
+mod smtp;
 
 pub use channel::{deliver_all, Channel, SlackChannel, WebhookChannel};
 pub use error::AlertError;
 pub use payload::AlertPayload;
 pub use sla::{evaluate_sla, SlaBreach};
+pub use smtp::{EmailChannel, SmtpConfig};
