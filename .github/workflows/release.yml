@@ -73,10 +73,16 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
+      - name: Stage install scripts
+        run: |
+          cp installers/install.sh   dist/install.sh
+          cp installers/install.ps1  dist/install.ps1
+          chmod +x dist/install.sh
       - name: List artifacts
         run: ls -la dist/
       - uses: softprops/action-gh-release@v2
