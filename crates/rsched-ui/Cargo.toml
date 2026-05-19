@@ -8,4 +8,10 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-thiserror = { workspace = true }
+axum = { workspace = true }
+mime_guess = { workspace = true }
+rust-embed = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+tower = { workspace = true }
