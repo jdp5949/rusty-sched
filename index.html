@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>rusty-sched — reliable job scheduler in a single binary</title>
+<meta name="description" content="Autosys-class job scheduler. One Rust binary. Web UI, HA cluster, multi-host agents, retries, alerts. Runs anywhere in seconds.">
+<meta property="og:title" content="rusty-sched">
+<meta property="og:description" content="Reliable job scheduler. One binary. Web UI + HA + alerts. Up and running in seconds.">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+  pre { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+  .grad { background: linear-gradient(135deg, #f97316 0%, #ea580c 50%, #b91c1c 100%); }
+  .grad-text { background: linear-gradient(135deg, #f97316, #b91c1c); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .codeblock { background: #0b1020; color: #e6edf3; }
+</style>
+</head>
+<body class="bg-white text-slate-900">
+
+<!-- Nav -->
+<header class="border-b border-slate-200">
+  <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <span class="text-2xl">⚙️</span>
+      <span class="font-bold text-xl grad-text">rusty-sched</span>
+    </div>
+    <nav class="flex items-center gap-6 text-sm">
+      <a href="#why" class="hover:text-orange-600">Why</a>
+      <a href="#quickstart" class="hover:text-orange-600">Quickstart</a>
+      <a href="#features" class="hover:text-orange-600">Features</a>
+      <a href="https://github.com/jdp5949/rusty-sched" class="hover:text-orange-600">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<!-- Hero -->
+<section class="grad text-white">
+  <div class="max-w-6xl mx-auto px-6 py-20 text-center">
+    <h1 class="text-5xl md:text-6xl font-extrabold leading-tight">
+      Reliable job scheduling.<br>
+      <span class="text-orange-100">One binary. Zero hassle.</span>
+    </h1>
+    <p class="mt-6 text-xl text-orange-50 max-w-3xl mx-auto">
+      Autosys-class power. Cron-simple ops. Built in Rust.
+      Web UI, HA cluster, multi-host agents, retries, SLAs, alerts.
+      Get running in seconds.
+    </p>
+    <div class="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
+      <a href="#quickstart" class="bg-white text-orange-700 font-semibold px-8 py-3 rounded-lg shadow-lg hover:bg-orange-50 transition">
+        Get started in 60s →
+      </a>
+      <a href="https://github.com/jdp5949/rusty-sched" class="border-2 border-white text-white font-semibold px-8 py-3 rounded-lg hover:bg-white/10 transition">
+        ★ View on GitHub
+      </a>
+    </div>
+    <p class="mt-8 text-orange-100 text-sm">
+      🐧 Linux &nbsp;·&nbsp; 🍎 macOS &nbsp;·&nbsp; 🪟 Windows &nbsp;·&nbsp; MIT/Apache-2.0
+    </p>
+  </div>
+</section>
+
+<!-- Why -->
+<section id="why" class="max-w-6xl mx-auto px-6 py-20">
+  <h2 class="text-4xl font-bold text-center">Why another scheduler?</h2>
+  <p class="text-center text-slate-600 mt-3 text-lg">Because every option has a fatal flaw.</p>
+  <div class="grid md:grid-cols-2 gap-6 mt-12">
+    <div class="border border-slate-200 rounded-xl p-6">
+      <div class="text-3xl mb-3">⏰</div>
+      <h3 class="font-bold text-lg">cron</h3>
+      <p class="text-slate-600 mt-2">No monitoring. No retries. No UI. No alerts. No history. Silent failures.</p>
+    </div>
+    <div class="border border-slate-200 rounded-xl p-6">
+      <div class="text-3xl mb-3">🌪️</div>
+      <h3 class="font-bold text-lg">Airflow</h3>
+      <p class="text-slate-600 mt-2">Python DSL, scheduler + workers + DB + executor + Redis. Too heavy to "just run a shell script."</p>
+    </div>
+    <div class="border border-slate-200 rounded-xl p-6">
+      <div class="text-3xl mb-3">💰</div>
+      <h3 class="font-bold text-lg">Autosys / Control-M</h3>
+      <p class="text-slate-600 mt-2">$$$. Closed source. Painful ops. Vendor lock-in.</p>
+    </div>
+    <div class="border-2 border-orange-500 rounded-xl p-6 bg-orange-50">
+      <div class="text-3xl mb-3">🦀</div>
+      <h3 class="font-bold text-lg grad-text">rusty-sched</h3>
+      <p class="text-slate-700 mt-2">One Rust binary. SQLite inside. HA cluster. Web UI. Runs anywhere. Reliable as cron, powerful as Autosys.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Quickstart -->
+<section id="quickstart" class="bg-slate-50">
+  <div class="max-w-4xl mx-auto px-6 py-20">
+    <h2 class="text-4xl font-bold text-center">60-second quickstart</h2>
+    <p class="text-center text-slate-600 mt-3 text-lg">No dependencies. No setup. No registration.</p>
+
+    <div class="mt-10 space-y-6">
+      <div>
+        <h3 class="font-semibold text-lg mb-2">1. Install (Linux / macOS)</h3>
+        <pre class="codeblock p-4 rounded-lg text-sm overflow-x-auto"><code>curl -fsSL https://github.com/jdp5949/rusty-sched/releases/latest/download/install.sh | sh</code></pre>
+      </div>
+
+      <div>
+        <h3 class="font-semibold text-lg mb-2">1. Install (Windows PowerShell)</h3>
+        <pre class="codeblock p-4 rounded-lg text-sm overflow-x-auto"><code>irm https://github.com/jdp5949/rusty-sched/releases/latest/download/install.ps1 | iex</code></pre>
+      </div>
+
+      <div>
+        <h3 class="font-semibold text-lg mb-2">2. Start the server (single node)</h3>
+        <pre class="codeblock p-4 rounded-lg text-sm overflow-x-auto"><code>rusty-sched server</code></pre>
+        <p class="text-sm text-slate-600 mt-2">Open <a href="#" class="text-orange-600 underline">http://localhost:8080</a> — that's it.</p>
+      </div>
+
+      <div>
+        <h3 class="font-semibold text-lg mb-2">3. (Optional) Start an agent on every worker host</h3>
+        <pre class="codeblock p-4 rounded-lg text-sm overflow-x-auto"><code>rusty-sched agent --servers your-server:7000</code></pre>
+      </div>
+
+      <div>
+        <h3 class="font-semibold text-lg mb-2">4. Define a job (YAML or via UI)</h3>
+        <pre class="codeblock p-4 rounded-lg text-sm overflow-x-auto"><code>cat &lt;&lt;EOF | rusty-sched job apply -f -
+name: nightly-etl
+cron: "0 2 * * *"
+cmd: /opt/etl/run.sh
+target: { tag: etl }
+retry: { max_attempts: 3, backoff: { kind: exponential, base_secs: 30, max_secs: 600 } }
+timeout_secs: 3600
+sla_secs: 1800
+alerts:
+  events: [on_failure, on_sla_miss]
+  channels:
+    - { kind: slack, webhook_url: "$SLACK_WEBHOOK" }
+EOF</code></pre>
+      </div>
+    </div>
+
+    <div class="mt-12 bg-white border border-slate-200 rounded-xl p-6">
+      <h3 class="font-bold text-lg">🛡️ Production-grade HA in 30 more seconds</h3>
+      <p class="text-slate-600 mt-2">Spin up a 3-node cluster — survives any single node failure with sub-second failover:</p>
+      <pre class="codeblock p-4 rounded-lg text-sm mt-3 overflow-x-auto"><code>rusty-sched server --peers node1:7000,node2:7000,node3:7000</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- Features -->
+<section id="features" class="max-w-6xl mx-auto px-6 py-20">
+  <h2 class="text-4xl font-bold text-center">Everything Autosys can do, simpler</h2>
+
+  <div class="grid md:grid-cols-3 gap-6 mt-12">
+    <div class="p-6 border border-slate-200 rounded-xl">
+      <div class="text-3xl">📅</div>
+      <h3 class="font-bold mt-2">Triggers</h3>
+      <p class="text-slate-600 text-sm mt-2">Cron, interval, one-shot, file watch, webhook, manual, dependency on upstream jobs.</p>
+    </div>
+    <div class="p-6 border border-slate-200 rounded-xl">
+      <div class="text-3xl">🧩</div>
+      <h3 class="font-bold mt-2">Dependencies + Boxes</h3>
+      <p class="text-slate-600 text-sm mt-2">DAGs with AND/OR/regardless conditions. Autosys-style "box jobs" grouped as a unit. Nested.</p>
+    </div>
+    <div class="p-6 border border-slate-200 rounded-xl">
+      <div class="text-3xl">🔁</div>
+      <h3 class="font-bold mt-2">Retries + SLA</h3>
+      <p class="text-slate-600 text-sm mt-2">Fixed / exponential backoff. Hard timeouts. SLA breach alerts. Late-start detection.</p>
+    </div>
+    <div class="p-6 border border-slate-200 rounded-xl">
+      <div class="text-3xl">📆</div>
+      <h3 class="font-bold mt-2">Calendars</h3>
+      <p class="text-slate-600 text-sm mt-2">Business days, blackout dates, time-of-day windows. AND-combined rules.</p>
+    </div>
+    <div class="p-6 border border-slate-200 rounded-xl">
+      <div class="text-3xl">🌐</div>
+      <h3 class="font-bold mt-2">Web UI</h3>
+      <p class="text-slate-600 text-sm mt-2">Live log tail. Gantt timeline. Dependency graph. Manual trigger. Pause/resume. Audit log.</p>
+    </div>
+    <div class="p-6 border border-slate-200 rounded-xl">
+      <div class="text-3xl">🛰️</div>
+      <h3 class="font-bold mt-2">Multi-host agents</h3>
+      <p class="text-slate-600 text-sm mt-2">Lightweight agent on every host. mTLS gRPC. Tag-based routing. Real-time log streaming.</p>
+    </div>
+    <div class="p-6 border border-slate-200 rounded-xl">
+      <div class="text-3xl">🏰</div>
+      <h3 class="font-bold mt-2">3-node HA cluster</h3>
+      <p class="text-slate-600 text-sm mt-2">Embedded Raft (openraft). Sub-second failover. Zero missed fires. No external DB.</p>
+    </div>
+    <div class="p-6 border border-slate-200 rounded-xl">
+      <div class="text-3xl">📣</div>
+      <h3 class="font-bold mt-2">Alerts</h3>
+      <p class="text-slate-600 text-sm mt-2">Email (SMTP), Slack, generic webhook. Per-job + per-box + global routing.</p>
+    </div>
+    <div class="p-6 border border-slate-200 rounded-xl">
+      <div class="text-3xl">🔐</div>
+      <h3 class="font-bold mt-2">Auth + RBAC</h3>
+      <p class="text-slate-600 text-sm mt-2">Local users, bcrypt passwords, session cookies, roles (admin/operator/viewer). Audit log.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Comparison -->
+<section class="bg-slate-900 text-white">
+  <div class="max-w-6xl mx-auto px-6 py-20">
+    <h2 class="text-4xl font-bold text-center">How it stacks up</h2>
+    <div class="mt-10 overflow-x-auto">
+      <table class="w-full text-left text-sm">
+        <thead>
+          <tr class="border-b border-slate-700">
+            <th class="py-3"></th>
+            <th class="py-3 text-orange-400">rusty-sched</th>
+            <th class="py-3">cron</th>
+            <th class="py-3">Airflow</th>
+            <th class="py-3">Autosys</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-800">
+          <tr><td class="py-3">Single binary</td><td>✅</td><td>✅</td><td>❌</td><td>❌</td></tr>
+          <tr><td class="py-3">Zero external deps</td><td>✅</td><td>✅</td><td>❌</td><td>❌</td></tr>
+          <tr><td class="py-3">Web UI</td><td>✅</td><td>❌</td><td>✅</td><td>✅</td></tr>
+          <tr><td class="py-3">Job dependencies / DAG</td><td>✅</td><td>❌</td><td>✅</td><td>✅</td></tr>
+          <tr><td class="py-3">Multi-host execution</td><td>✅</td><td>❌</td><td>✅</td><td>✅</td></tr>
+          <tr><td class="py-3">HA cluster</td><td>✅</td><td>❌</td><td>⚠️ extra setup</td><td>✅</td></tr>
+          <tr><td class="py-3">Retries + SLA</td><td>✅</td><td>❌</td><td>✅</td><td>✅</td></tr>
+          <tr><td class="py-3">Up in &lt; 60 seconds</td><td>✅</td><td>✅</td><td>❌</td><td>❌</td></tr>
+          <tr><td class="py-3">Open source</td><td>✅</td><td>✅</td><td>✅</td><td>❌</td></tr>
+          <tr><td class="py-3">Free</td><td>✅</td><td>✅</td><td>✅</td><td>❌</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="grad text-white">
+  <div class="max-w-3xl mx-auto px-6 py-20 text-center">
+    <h2 class="text-4xl font-bold">Stop fighting your scheduler.</h2>
+    <p class="mt-4 text-xl text-orange-50">One binary. One config. One UI. Everything you need.</p>
+    <a href="https://github.com/jdp5949/rusty-sched" class="inline-block mt-8 bg-white text-orange-700 font-semibold px-8 py-3 rounded-lg shadow-lg hover:bg-orange-50 transition">
+      ★ Star on GitHub
+    </a>
+  </div>
+</section>
+
+<footer class="bg-slate-950 text-slate-400 text-sm">
+  <div class="max-w-6xl mx-auto px-6 py-8 flex flex-col md:flex-row items-center justify-between gap-3">
+    <div>© 2026 rusty-sched — MIT / Apache-2.0</div>
+    <div class="flex gap-6">
+      <a href="https://github.com/jdp5949/rusty-sched" class="hover:text-white">GitHub</a>
+      <a href="https://github.com/jdp5949/rusty-sched/issues" class="hover:text-white">Issues</a>
+      <a href="https://github.com/jdp5949/rusty-sched/blob/main/docs/superpowers/specs/2026-05-18-rusty-sched-design.md" class="hover:text-white">Design</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
