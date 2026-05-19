@@ -298,7 +298,7 @@ irm https://github.com/jdp5949/rusty-sched/releases/latest/download/install.ps1 
 8. **Load** — `criterion` benches. Target: 10k jobs, 100 runs/sec, p99 dispatch < 200ms.
 
 ### 10.2 Discipline
-- TDD per `superpowers:test-driven-development` skill.
+- TDD discipline: red → green → refactor.
 - No mocks for SQLite (use real ephemeral).
 - Property tests (`proptest`): cron next-fire correctness, DAG cycle detection, calendar boundaries.
 - Chaos suite in nightly CI; PR CI runs fast layers only.

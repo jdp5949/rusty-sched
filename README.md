@@ -2,7 +2,7 @@
 
 Autosys-class job scheduler. Single Rust binary. Zero external deps. HA cluster. Cross-platform.
 
-> **Status:** pre-alpha / scaffold. See [v1 design spec](docs/superpowers/specs/2026-05-18-rusty-sched-design.md) and [implementation plan](docs/superpowers/plans/2026-05-18-rusty-sched-plan.md).
+> **Status:** pre-alpha / scaffold. See [v1 design spec](docs/specs/2026-05-18-rusty-sched-design.md) and [implementation plan](docs/plans/2026-05-18-rusty-sched-plan.md).
 
 ## Why
 
