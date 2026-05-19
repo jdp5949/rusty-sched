@@ -1,0 +1,23 @@
+[Unit]
+Description=rusty-sched execution agent
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/rusty-sched agent
+Restart=always
+RestartSec=5
+User=rusty-sched
+Group=rusty-sched
+StateDirectory=rusty-sched
+LogsDirectory=rusty-sched
+ConfigurationDirectory=rusty-sched
+Environment=RUST_LOG=info
+
+NoNewPrivileges=true
+ProtectSystem=strict
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
