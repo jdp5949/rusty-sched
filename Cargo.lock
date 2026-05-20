@@ -2064,11 +2064,21 @@ dependencies = [
  "clap",
  "reqwest",
  "rsched-core",
+ "rsched-jil",
  "serde",
  "serde_json",
  "serde_yaml",
  "thiserror 2.0.18",
  "tokio",
+]
+
+[[package]]
+name = "rsched-conditions"
+version = "0.1.0"
+dependencies = [
+ "rsched-core",
+ "serde",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -2082,6 +2092,16 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "ulid",
+]
+
+[[package]]
+name = "rsched-jil"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "rsched-core",
+ "serde",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -2107,6 +2127,7 @@ dependencies = [
  "chrono-tz",
  "croner",
  "proptest",
+ "rsched-conditions",
  "rsched-core",
  "rsched-store",
  "thiserror 2.0.18",
