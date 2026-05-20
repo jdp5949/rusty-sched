@@ -13,6 +13,7 @@ rsched-store = { path = "../rsched-store" }
 rsched-conditions = { path = "../rsched-conditions" }
 async-trait = { workspace = true }
 chrono = { workspace = true }
+dashmap = { workspace = true }
 chrono-tz = { workspace = true }
 croner = "2"
 thiserror = { workspace = true }
