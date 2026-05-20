@@ -42,7 +42,11 @@ enum Cmd {
         /// Bind address.
         #[arg(long, env = "RSCHED_BIND", default_value = "0.0.0.0:8080")]
         bind: String,
-        /// SQLite file path. Defaults to OS-specific data dir.
+        /// Database URL (sqlite:… or postgres://…). Overrides --db.
+        /// Defaults to SQLite at the OS data dir when absent.
+        #[arg(long, env = "RSCHED_DB_URL")]
+        db_url: Option<String>,
+        /// SQLite file path (legacy). Ignored when --db-url is set.
         #[arg(long, env = "RSCHED_DB")]
         db: Option<String>,
     },
@@ -69,7 +73,9 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::Server { bind, db } => run_server(&bind, db.as_deref()).await,
+        Cmd::Server { bind, db_url, db } => {
+            run_server(&bind, db_url.as_deref(), db.as_deref()).await
+        }
         Cmd::Agent => {
             anyhow::bail!("standalone agent process is M4 (gRPC). Today the server runs jobs in-process via LocalExecutor.");
         }
@@ -81,20 +87,30 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn run_server(bind: &str, db_override: Option<&str>) -> Result<()> {
-    let db_path = match db_override {
-        Some(p) => std::path::PathBuf::from(p),
-        None => {
-            let dirs = ProjectDirs::from("io", "rustysched", "rusty-sched")
-                .context("could not resolve OS data dir")?;
-            let dir = dirs.data_dir();
-            std::fs::create_dir_all(dir).context("create data dir")?;
-            dir.join("rusty.db")
-        }
+async fn run_server(
+    bind: &str,
+    db_url: Option<&str>,
+    db_path_override: Option<&str>,
+) -> Result<()> {
+    let url: String = if let Some(u) = db_url {
+        u.to_string()
+    } else {
+        let path = match db_path_override {
+            Some(p) => std::path::PathBuf::from(p),
+            None => {
+                let dirs = ProjectDirs::from("io", "rustysched", "rusty-sched")
+                    .context("could not resolve OS data dir")?;
+                let dir = dirs.data_dir();
+                std::fs::create_dir_all(dir).context("create data dir")?;
+                dir.join("rusty.db")
+            }
+        };
+        format!("sqlite://{}", path.display())
     };
-    info!(db = %db_path.display(), "opening SQLite");
-    let pool = rsched_store::open_pool(&db_path).await?;
-    let store = Store::new(pool);
+    info!(url = %url, "opening database");
+    rsched_store::init_drivers();
+    let pool = rsched_store::open_pool(&url).await?;
+    let store = Store::with_url(pool, &url);
     store.migrate().await?;
     let store_arc = Arc::new(store.clone());
 
