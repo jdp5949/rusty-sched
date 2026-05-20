@@ -23,6 +23,8 @@ pub enum TriggerKind {
     Webhook,
     /// Only triggered manually via API/CLI/UI.
     Manual,
+    /// Fires when a condition expression evaluates to true.
+    Condition,
 }
 
 /// Full trigger payload. Tagged enum — store as JSON alongside `kind` column.
@@ -70,6 +72,11 @@ pub enum Trigger {
     },
     /// Manual-only trigger.
     Manual,
+    /// Fires when a condition expression evaluates to true.
+    Condition {
+        /// Autosys-style condition expression string.
+        expr: String,
+    },
 }
 
 impl Trigger {
@@ -83,6 +90,7 @@ impl Trigger {
             Trigger::File { .. } => TriggerKind::File,
             Trigger::Webhook { .. } => TriggerKind::Webhook,
             Trigger::Manual => TriggerKind::Manual,
+            Trigger::Condition { .. } => TriggerKind::Condition,
         }
     }
 
@@ -122,6 +130,12 @@ impl Trigger {
                     return Err(CoreError::InvalidCalendar(
                         "webhook slug<8 or secret<16 chars",
                     ));
+                }
+                Ok(())
+            }
+            Trigger::Condition { expr } => {
+                if expr.trim().is_empty() {
+                    return Err(CoreError::InvalidCalendar("condition expr cannot be empty"));
                 }
                 Ok(())
             }

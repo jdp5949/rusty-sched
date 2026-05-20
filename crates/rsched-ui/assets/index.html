@@ -159,7 +159,11 @@ function JobRow({ job, onChange }) {
     onChange();
   }
   async function loadRuns() {
-    setRuns(await api("GET", `/jobs/${job.id}/runs`));
+    const r = await api("GET", `/jobs/${job.id}/runs`);
+    setRuns(r);
+  }
+  function viewRun(run) {
+    setExpandedRun(prev => prev && prev.id === run.id ? null : run);
   }
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-4 mb-3 shadow-sm">
@@ -180,7 +184,7 @@ function JobRow({ job, onChange }) {
       <div className="mt-2 text-xs text-slate-500 flex gap-4">
         <span>trigger: <span className="mono">{job.trigger.kind}</span></span>
         {job.next_fire_at && <span>next: <span className="mono">{new Date(job.next_fire_at).toLocaleString()}</span></span>}
-        <span>timeout: <span className="mono">{job.timeout_secs || '∞'}s</span></span>
+        <span>timeout: <span className="mono">{job.timeout_secs || 'inf'}s</span></span>
         <span>retry: <span className="mono">{job.retry.max_attempts}</span></span>
       </div>
       {runs && (
