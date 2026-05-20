@@ -13,7 +13,6 @@ members = [
     "crates/rsched-cli",
     "crates/rsched-bin",
     "crates/rsched-jil",
-    "crates/rsched-conditions",
 ]
 
 [workspace.package]
