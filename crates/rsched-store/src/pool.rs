@@ -2,9 +2,7 @@
 
 use crate::StoreError;
 use sqlx::any::install_default_drivers;
-use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
-use sqlx::{AnyPool, SqlitePool};
-use std::str::FromStr;
+use sqlx::AnyPool;
 use std::time::Duration;
 
 /// Install all Any-driver backends (call once before opening Any pools).
@@ -30,15 +28,6 @@ pub async fn open_pool(url: &str) -> Result<AnyPool, StoreError> {
 }
 
 /// Ephemeral in-memory SQLite pool for unit tests (single shared connection).
-pub async fn open_memory() -> Result<SqlitePool, StoreError> {
-    let opts = SqliteConnectOptions::from_str("sqlite::memory:")?
-        .foreign_keys(true)
-        .create_if_missing(true)
-        .journal_mode(SqliteJournalMode::Wal)
-        .synchronous(SqliteSynchronous::Normal);
-    let pool = SqlitePoolOptions::new()
-        .max_connections(1)
-        .connect_with(opts)
-        .await?;
-    Ok(pool)
+pub async fn open_memory() -> Result<AnyPool, StoreError> {
+    open_pool("sqlite::memory:").await
 }
