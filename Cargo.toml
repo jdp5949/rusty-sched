@@ -74,6 +74,7 @@ directories = "5"
 config = "0.14"
 
 # Utils
+dashmap = "5"
 once_cell = "1"
 parking_lot = "0.12"
 bytes = "1"

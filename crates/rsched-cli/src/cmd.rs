@@ -210,10 +210,21 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
                     println!("{id}\tSTARTJOB");
                 }
                 "KILLJOB" | "KILL" => {
-                    // Kill semantics requires per-run kill API (deferred to M4-full).
-                    // For now: pause to stop scheduling; explicit run kill is TBD.
-                    client.pause(&id).await?;
-                    println!("{id}\tKILLJOB (paused; live-run kill API is M4-full)");
+                    // Find the most recent running run and kill it.
+                    let runs = client.runs_for(&id).await?;
+                    let running = runs
+                        .iter()
+                        .find(|r| r.state == rsched_core::RunState::Running);
+                    match running {
+                        Some(r) => {
+                            let run_id = r.id.to_string();
+                            client.kill_run(&run_id).await?;
+                            println!("killed run {run_id}");
+                        }
+                        None => {
+                            return Err(anyhow!("no running run found for job {}", target));
+                        }
+                    }
                 }
                 "ON_HOLD" | "HOLD" | "OFF_ICE" => {
                     client.pause(&id).await?;
