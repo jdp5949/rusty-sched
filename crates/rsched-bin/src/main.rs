@@ -17,8 +17,9 @@ use directories::ProjectDirs;
 use futures::StreamExt;
 use rsched_agent::{Executor, LocalExecutor};
 use rsched_api::{router as api_router, AppState};
+use rsched_core::Run;
 use rsched_core::RunState;
-use rsched_scheduler::{tick_once, Dispatcher, SchedulerConfig};
+use rsched_scheduler::{should_retry, tick_once, DispatchIntent, Dispatcher, SchedulerConfig};
 use rsched_store::Store;
 use tokio::net::TcpListener;
 use tracing::{error, info, warn};
@@ -104,13 +105,16 @@ async fn run_server(bind: &str, db_override: Option<&str>) -> Result<()> {
     // stream logs back, persist final run state.
     let store_disp = store_arc.clone();
     let executor_disp = executor.clone();
+    let dispatcher_disp = dispatcher.clone();
     tokio::spawn(async move {
         while let Some(intent) = dispatch_rx.recv().await {
             let store = store_disp.clone();
             let executor = executor_disp.clone();
+            let dispatcher_ref = dispatcher_disp.clone();
             tokio::spawn(async move {
                 let run_id = intent.run.id;
                 let job_name = intent.job.name.clone();
+                let job_for_retry = intent.job.clone();
                 let mut handle = match executor.dispatch(run_id, intent.job).await {
                     Ok(h) => h,
                     Err(e) => {
@@ -161,6 +165,18 @@ async fn run_server(bind: &str, db_override: Option<&str>) -> Result<()> {
                     }
                 }
                 let _ = store.runs().update(&run).await;
+
+                // Retry: schedule next attempt if policy says so.
+                if should_retry(&job_for_retry, &run) {
+                    let next_attempt = run.attempt + 1;
+                    schedule_retry(
+                        store.clone(),
+                        dispatcher_ref.clone(),
+                        job_for_retry,
+                        run.id,
+                        next_attempt,
+                    );
+                }
             });
         }
     });
@@ -201,6 +217,32 @@ async fn run_server(bind: &str, db_override: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+/// Persist a retry run and enqueue it after the backoff delay.
+///
+/// Extracted for testability — `schedule_retry` owns its inputs and runs
+/// the sleep + insert + send in a spawned task.  Returns the `JoinHandle`
+/// so callers can await it in tests.
+fn schedule_retry(
+    store: Arc<rsched_store::Store>,
+    dispatcher: Dispatcher,
+    job: rsched_core::Job,
+    prev_run_id: rsched_core::RunId,
+    next_attempt: u32,
+) -> tokio::task::JoinHandle<()> {
+    let delay = job.retry.backoff.delay_for(next_attempt);
+    tokio::spawn(async move {
+        tokio::time::sleep(delay).await;
+        let mut new_run = Run::new(job.id, next_attempt);
+        new_run.parent_run_ids = vec![prev_run_id];
+        if let Err(e) = store.runs().insert(&new_run).await {
+            error!(error=%e, "failed to persist retry run");
+            return;
+        }
+        info!(job=%job.name, attempt=next_attempt, "scheduling retry");
+        let _ = dispatcher.send(DispatchIntent { job, run: new_run }).await;
+    })
+}
+
 async fn shutdown_signal() {
     let ctrl_c = async {
         let _ = tokio::signal::ctrl_c().await;
@@ -218,4 +260,110 @@ async fn shutdown_signal() {
         _ = terminate => {}
     }
     info!("shutdown signal received");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rsched_core::{BackoffKind, JobBuilder, RetryPolicy, Run, RunId, RunState, Trigger};
+    use rsched_store::Store;
+
+    async fn fresh_store() -> Arc<Store> {
+        let pool = rsched_store::open_memory().await.unwrap();
+        let store = Store::new(pool);
+        store.migrate().await.unwrap();
+        Arc::new(store)
+    }
+
+    fn failing_job(max_attempts: u32) -> rsched_core::Job {
+        JobBuilder::new(
+            "retry-test",
+            "false",
+            Trigger::Cron {
+                expr: "* * * * *".into(),
+                timezone: None,
+            },
+        )
+        .retry(RetryPolicy {
+            max_attempts,
+            backoff: BackoffKind::Fixed { delay_secs: 0 },
+        })
+        .build()
+        .unwrap()
+    }
+
+    /// Simulate N-1 retries for a job with max_attempts=N using schedule_retry.
+    /// Verifies: exactly N runs in store, monotonically increasing attempt,
+    /// and each non-first run records previous run id in parent_run_ids.
+    #[tokio::test]
+    async fn retry_chain_persists_attempts() {
+        let store = fresh_store().await;
+        let job = failing_job(3);
+        store.jobs().insert(&job).await.unwrap();
+
+        let (dispatcher, mut rx) = Dispatcher::bounded(16);
+
+        // Insert the initial run (attempt 1) as if it was created by tick.
+        let mut run1 = Run::new(job.id, 1);
+        run1.state = RunState::Failed;
+        run1.finished_at = Some(chrono::Utc::now());
+        store.runs().insert(&run1).await.unwrap();
+
+        // Attempt 1 failed — schedule retry for attempt 2.
+        assert!(should_retry(&job, &run1));
+        let h1 = schedule_retry(store.clone(), dispatcher.clone(), job.clone(), run1.id, 2);
+        h1.await.unwrap();
+
+        // Receive the dispatched intent for attempt 2.
+        let intent2 = rx.recv().await.unwrap();
+        assert_eq!(intent2.run.attempt, 2);
+        assert_eq!(intent2.run.parent_run_ids, vec![run1.id]);
+
+        // Mark attempt 2 as failed; schedule retry for attempt 3.
+        let mut run2 = intent2.run.clone();
+        run2.state = RunState::Failed;
+        run2.finished_at = Some(chrono::Utc::now());
+        store.runs().update(&run2).await.unwrap();
+
+        assert!(should_retry(&job, &run2));
+        let h2 = schedule_retry(store.clone(), dispatcher.clone(), job.clone(), run2.id, 3);
+        h2.await.unwrap();
+
+        let intent3 = rx.recv().await.unwrap();
+        assert_eq!(intent3.run.attempt, 3);
+        assert_eq!(intent3.run.parent_run_ids, vec![run2.id]);
+
+        // Attempt 3 = max_attempts; should NOT retry.
+        let mut run3 = intent3.run.clone();
+        run3.state = RunState::Failed;
+        run3.finished_at = Some(chrono::Utc::now());
+        store.runs().update(&run3).await.unwrap();
+        assert!(!should_retry(&job, &run3));
+
+        // Verify 3 runs in store with monotonically increasing attempts.
+        let runs = store.runs().list_for_job(job.id, 10).await.unwrap();
+        assert_eq!(runs.len(), 3);
+        let mut attempts: Vec<u32> = runs.iter().map(|r| r.attempt).collect();
+        attempts.sort();
+        assert_eq!(attempts, vec![1, 2, 3]);
+
+        // Suppress unused RunId warning
+        let _ = RunId::new();
+    }
+
+    #[tokio::test]
+    async fn no_retry_on_success() {
+        let job = failing_job(3);
+        let mut run = Run::new(job.id, 1);
+        run.state = RunState::Success;
+        assert!(!should_retry(&job, &run));
+    }
+
+    #[tokio::test]
+    async fn no_retry_on_killed() {
+        let job = failing_job(3);
+        let mut run = Run::new(job.id, 1);
+        run.state = RunState::Killed;
+        assert!(!should_retry(&job, &run));
+    }
 }
