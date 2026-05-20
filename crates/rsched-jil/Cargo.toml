@@ -1,0 +1,17 @@
+[package]
+name = "rsched-jil"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Autosys JIL (Job Information Language) parser for rusty-sched."
+
+[dependencies]
+rsched-core = { path = "../rsched-core" }
+thiserror = { workspace = true }
+serde = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
