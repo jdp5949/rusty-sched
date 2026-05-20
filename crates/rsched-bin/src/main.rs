@@ -19,7 +19,9 @@ use rsched_agent::{Executor, LocalExecutor};
 use rsched_api::{router as api_router, AppState};
 use rsched_core::Run;
 use rsched_core::RunState;
-use rsched_scheduler::{should_retry, tick_once, DispatchIntent, Dispatcher, SchedulerConfig};
+use rsched_scheduler::{
+    should_retry, tick_once, DispatchIntent, Dispatcher, HandleRegistry, SchedulerConfig,
+};
 use rsched_store::Store;
 use tokio::net::TcpListener;
 use tracing::{error, info, warn};
@@ -114,6 +116,7 @@ async fn run_server(
     store.migrate().await?;
     let store_arc = Arc::new(store.clone());
 
+    let registry = Arc::new(HandleRegistry::new());
     let (dispatcher, mut dispatch_rx) = Dispatcher::bounded(10_000);
     let executor = Arc::new(LocalExecutor::new());
 
@@ -122,11 +125,13 @@ async fn run_server(
     let store_disp = store_arc.clone();
     let executor_disp = executor.clone();
     let dispatcher_disp = dispatcher.clone();
+    let registry_disp = registry.clone();
     tokio::spawn(async move {
         while let Some(intent) = dispatch_rx.recv().await {
             let store = store_disp.clone();
             let executor = executor_disp.clone();
             let dispatcher_ref = dispatcher_disp.clone();
+            let registry_ref = registry_disp.clone();
             tokio::spawn(async move {
                 let run_id = intent.run.id;
                 let job_name = intent.job.name.clone();
@@ -142,6 +147,7 @@ async fn run_server(
                         return;
                     }
                 };
+                registry_ref.insert(run_id.to_string(), handle.kill_tx.clone());
 
                 // Mark as running.
                 let mut run = intent.run.clone();
@@ -199,6 +205,7 @@ async fn run_server(
                         error!(%run_id, error=%e, "outcome task panicked");
                     }
                 }
+                registry_ref.remove(&run_id.to_string());
                 let _ = store.runs().update(&run).await;
 
                 // Retry: schedule next attempt if policy says so.
@@ -238,7 +245,7 @@ async fn run_server(
     });
 
     // HTTP server: API + UI both routed.
-    let state = AppState::new(store);
+    let state = AppState::with_registry(store, registry);
     let app = api_router(state).merge(rsched_ui::router());
     let listener = TcpListener::bind(bind)
         .await

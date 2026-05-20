@@ -121,6 +121,16 @@ impl ApiClient {
         Ok(())
     }
 
+    /// Kill a live run by run id. Returns Ok if server responded 204.
+    pub async fn kill_run(&self, run_id: &str) -> Result<()> {
+        self.http
+            .delete(format!("{}/api/v1/runs/{}", self.base, run_id))
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(())
+    }
+
     /// Most recent runs for a job (server caps at 100).
     pub async fn runs_for(&self, id: &str) -> Result<Vec<Run>> {
         let r = self
