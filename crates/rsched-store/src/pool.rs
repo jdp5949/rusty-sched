@@ -31,3 +31,13 @@ pub async fn open_pool(url: &str) -> Result<AnyPool, StoreError> {
 pub async fn open_memory() -> Result<AnyPool, StoreError> {
     open_pool("sqlite::memory:").await
 }
+
+/// Ephemeral in-memory AnyPool for unit tests (single shared connection).
+pub async fn open_any_memory() -> Result<AnyPool, StoreError> {
+    init_drivers();
+    let pool = sqlx::any::AnyPoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await?;
+    Ok(pool)
+}
