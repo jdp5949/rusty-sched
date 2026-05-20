@@ -45,6 +45,10 @@ impl Store {
     pub fn agents(&self) -> AgentRepo<'_> {
         AgentRepo { pool: &self.pool }
     }
+    /// Run-log repository.
+    pub fn run_logs(&self) -> RunLogRepo<'_> {
+        RunLogRepo { pool: &self.pool }
+    }
 }
 
 fn trigger_kind_str(k: TriggerKind) -> &'static str {
@@ -587,6 +591,88 @@ impl<'a> AgentRepo<'a> {
     }
 }
 
+/// A single persisted log chunk from a run.
+#[derive(Debug)]
+pub struct LogRow {
+    /// Monotone sequence number within the run (0-based).
+    pub seq: i64,
+    /// RFC-3339 timestamp when the chunk was captured.
+    pub ts: String,
+    /// `"stdout"` or `"stderr"`.
+    pub stream: String,
+    /// Raw bytes from the process output.
+    pub chunk: Vec<u8>,
+}
+
+/// Repository for run-log chunks stored in `run_logs`.
+pub struct RunLogRepo<'a> {
+    pool: &'a SqlitePool,
+}
+
+impl<'a> RunLogRepo<'a> {
+    /// Append one log chunk. Silently ignores duplicate `(run_id, seq)` pairs.
+    pub async fn append(
+        &self,
+        run_id: &str,
+        seq: i64,
+        ts: &str,
+        stream: &str,
+        chunk: &[u8],
+    ) -> Result<(), StoreError> {
+        sqlx::query(
+            "INSERT OR IGNORE INTO run_logs (run_id, seq, ts, stream, chunk) \
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(run_id)
+        .bind(seq)
+        .bind(ts)
+        .bind(stream)
+        .bind(chunk)
+        .execute(self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Fetch log chunks ordered by `seq`, optionally starting from `from_seq`.
+    pub async fn fetch(
+        &self,
+        run_id: &str,
+        from_seq: Option<i64>,
+        limit: i64,
+    ) -> Result<Vec<LogRow>, StoreError> {
+        let rows = if let Some(start) = from_seq {
+            sqlx::query(
+                "SELECT seq, ts, stream, chunk FROM run_logs \
+                 WHERE run_id = ? AND seq >= ? ORDER BY seq LIMIT ?",
+            )
+            .bind(run_id)
+            .bind(start)
+            .bind(limit)
+            .fetch_all(self.pool)
+            .await?
+        } else {
+            sqlx::query(
+                "SELECT seq, ts, stream, chunk FROM run_logs \
+                 WHERE run_id = ? ORDER BY seq LIMIT ?",
+            )
+            .bind(run_id)
+            .bind(limit)
+            .fetch_all(self.pool)
+            .await?
+        };
+        rows.into_iter()
+            .map(|r| {
+                Ok(LogRow {
+                    seq: r.try_get("seq")?,
+                    ts: r.try_get("ts")?,
+                    stream: r.try_get("stream")?,
+                    chunk: r.try_get("chunk")?,
+                })
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -754,5 +840,75 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(store.agents().count().await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn run_log_append_and_fetch() {
+        let store = fresh_store().await;
+        let job = JobBuilder::new("lj", "echo", cron_trigger())
+            .build()
+            .unwrap();
+        store.jobs().insert(&job).await.unwrap();
+        let run = rsched_core::Run::new(job.id, 1);
+        store.runs().insert(&run).await.unwrap();
+        let id = run.id.to_string();
+        store
+            .run_logs()
+            .append(&id, 0, "2026-01-01T00:00:00Z", "stdout", b"hello")
+            .await
+            .unwrap();
+        store
+            .run_logs()
+            .append(&id, 1, "2026-01-01T00:00:01Z", "stderr", b"err")
+            .await
+            .unwrap();
+        let rows = store.run_logs().fetch(&id, None, 100).await.unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].chunk, b"hello");
+        assert_eq!(rows[1].stream, "stderr");
+    }
+
+    #[tokio::test]
+    async fn run_log_from_seq_filter() {
+        let store = fresh_store().await;
+        let job = JobBuilder::new("lj2", "echo", cron_trigger())
+            .build()
+            .unwrap();
+        store.jobs().insert(&job).await.unwrap();
+        let run = rsched_core::Run::new(job.id, 1);
+        store.runs().insert(&run).await.unwrap();
+        let id = run.id.to_string();
+        for i in 0i64..5 {
+            store
+                .run_logs()
+                .append(&id, i, "2026-01-01T00:00:00Z", "stdout", b"x")
+                .await
+                .unwrap();
+        }
+        let rows = store.run_logs().fetch(&id, Some(3), 100).await.unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].seq, 3);
+        assert_eq!(rows[1].seq, 4);
+    }
+
+    #[tokio::test]
+    async fn run_log_limit() {
+        let store = fresh_store().await;
+        let job = JobBuilder::new("lj3", "echo", cron_trigger())
+            .build()
+            .unwrap();
+        store.jobs().insert(&job).await.unwrap();
+        let run = rsched_core::Run::new(job.id, 1);
+        store.runs().insert(&run).await.unwrap();
+        let id = run.id.to_string();
+        for i in 0i64..10 {
+            store
+                .run_logs()
+                .append(&id, i, "2026-01-01T00:00:00Z", "stdout", b"y")
+                .await
+                .unwrap();
+        }
+        let rows = store.run_logs().fetch(&id, None, 3).await.unwrap();
+        assert_eq!(rows.len(), 3);
     }
 }
