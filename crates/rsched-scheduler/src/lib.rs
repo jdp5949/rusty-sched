@@ -5,6 +5,7 @@
 
 #![warn(missing_docs)]
 
+mod condition_ctx;
 mod cron;
 mod dag;
 mod dispatch;

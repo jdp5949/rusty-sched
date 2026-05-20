@@ -72,6 +72,7 @@ fn trigger_kind_str(k: TriggerKind) -> &'static str {
         TriggerKind::File => "file",
         TriggerKind::Webhook => "webhook",
         TriggerKind::Manual => "manual",
+        TriggerKind::Condition => "condition",
     }
 }
 
@@ -457,6 +458,27 @@ impl<'a> RunRepo<'a> {
         rows.iter().map(row_to_run).collect()
     }
 
+    /// True if the job has any run in a non-terminal state.
+    pub async fn has_active_for_job(&self, job_id: JobId) -> Result<bool, StoreError> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM runs WHERE job_id = ? AND state IN ('queued','running')",
+        )
+        .bind(job_id.to_string())
+        .fetch_one(self.pool)
+        .await?;
+        Ok(count > 0)
+    }
+
+    /// Set the state of a run.
+    pub async fn set_state(&self, run_id: RunId, state: RunState) -> Result<(), StoreError> {
+        sqlx::query("UPDATE runs SET state = ? WHERE id = ?")
+            .bind(run_state_str(state))
+            .bind(run_id.to_string())
+            .execute(self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// List runs currently in non-terminal states.
     pub async fn list_active(&self) -> Result<Vec<Run>, StoreError> {
         let rows = sqlx::query("SELECT * FROM runs WHERE state IN ('queued','running')")
@@ -823,6 +845,88 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn run_log_append_and_fetch() {
+        let store = fresh_store().await;
+        let job = JobBuilder::new("j", "echo", cron_trigger())
+            .build()
+            .unwrap();
+        store.jobs().insert(&job).await.unwrap();
+        let run = Run::new(job.id, 1);
+        store.runs().insert(&run).await.unwrap();
+        let run_id = run.id.to_string();
+
+        store
+            .run_logs()
+            .append(&run_id, 0, "2026-01-01T00:00:00Z", "stdout", b"hello")
+            .await
+            .unwrap();
+        store
+            .run_logs()
+            .append(&run_id, 1, "2026-01-01T00:00:01Z", "stderr", b"err")
+            .await
+            .unwrap();
+        store
+            .run_logs()
+            .append(&run_id, 2, "2026-01-01T00:00:02Z", "stdout", b"world")
+            .await
+            .unwrap();
+
+        let rows = store.run_logs().fetch(&run_id, None, 100).await.unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].seq, 0);
+        assert_eq!(rows[0].chunk, b"hello");
+        assert_eq!(rows[1].stream, "stderr");
+        assert_eq!(rows[2].seq, 2);
+    }
+
+    #[tokio::test]
+    async fn run_log_from_seq_filter() {
+        let store = fresh_store().await;
+        let job = JobBuilder::new("j2", "echo", cron_trigger())
+            .build()
+            .unwrap();
+        store.jobs().insert(&job).await.unwrap();
+        let run = Run::new(job.id, 1);
+        store.runs().insert(&run).await.unwrap();
+        let run_id = run.id.to_string();
+
+        for i in 0i64..5 {
+            store
+                .run_logs()
+                .append(&run_id, i, "2026-01-01T00:00:00Z", "stdout", b"x")
+                .await
+                .unwrap();
+        }
+
+        let rows = store.run_logs().fetch(&run_id, Some(2), 100).await.unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].seq, 2);
+    }
+
+    #[tokio::test]
+    async fn run_log_limit() {
+        let store = fresh_store().await;
+        let job = JobBuilder::new("j3", "echo", cron_trigger())
+            .build()
+            .unwrap();
+        store.jobs().insert(&job).await.unwrap();
+        let run = Run::new(job.id, 1);
+        store.runs().insert(&run).await.unwrap();
+        let run_id = run.id.to_string();
+
+        for i in 0i64..10 {
+            store
+                .run_logs()
+                .append(&run_id, i, "2026-01-01T00:00:00Z", "stdout", b"y")
+                .await
+                .unwrap();
+        }
+
+        let rows = store.run_logs().fetch(&run_id, None, 3).await.unwrap();
+        assert_eq!(rows.len(), 3);
+    }
+
+    #[tokio::test]
     async fn agent_upsert_idempotent() {
         let store = fresh_store().await;
         let id = AgentId::new();
@@ -853,76 +957,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(store.agents().count().await.unwrap(), 1);
-    }
-
-    #[tokio::test]
-    async fn run_log_append_and_fetch() {
-        let store = fresh_store().await;
-        let job = JobBuilder::new("lj", "echo", cron_trigger())
-            .build()
-            .unwrap();
-        store.jobs().insert(&job).await.unwrap();
-        let run = rsched_core::Run::new(job.id, 1);
-        store.runs().insert(&run).await.unwrap();
-        let id = run.id.to_string();
-        store
-            .run_logs()
-            .append(&id, 0, "2026-01-01T00:00:00Z", "stdout", b"hello")
-            .await
-            .unwrap();
-        store
-            .run_logs()
-            .append(&id, 1, "2026-01-01T00:00:01Z", "stderr", b"err")
-            .await
-            .unwrap();
-        let rows = store.run_logs().fetch(&id, None, 100).await.unwrap();
-        assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0].chunk, b"hello");
-        assert_eq!(rows[1].stream, "stderr");
-    }
-
-    #[tokio::test]
-    async fn run_log_from_seq_filter() {
-        let store = fresh_store().await;
-        let job = JobBuilder::new("lj2", "echo", cron_trigger())
-            .build()
-            .unwrap();
-        store.jobs().insert(&job).await.unwrap();
-        let run = rsched_core::Run::new(job.id, 1);
-        store.runs().insert(&run).await.unwrap();
-        let id = run.id.to_string();
-        for i in 0i64..5 {
-            store
-                .run_logs()
-                .append(&id, i, "2026-01-01T00:00:00Z", "stdout", b"x")
-                .await
-                .unwrap();
-        }
-        let rows = store.run_logs().fetch(&id, Some(3), 100).await.unwrap();
-        assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0].seq, 3);
-        assert_eq!(rows[1].seq, 4);
-    }
-
-    #[tokio::test]
-    async fn run_log_limit() {
-        let store = fresh_store().await;
-        let job = JobBuilder::new("lj3", "echo", cron_trigger())
-            .build()
-            .unwrap();
-        store.jobs().insert(&job).await.unwrap();
-        let run = rsched_core::Run::new(job.id, 1);
-        store.runs().insert(&run).await.unwrap();
-        let id = run.id.to_string();
-        for i in 0i64..10 {
-            store
-                .run_logs()
-                .append(&id, i, "2026-01-01T00:00:00Z", "stdout", b"y")
-                .await
-                .unwrap();
-        }
-        let rows = store.run_logs().fetch(&id, None, 3).await.unwrap();
-        assert_eq!(rows.len(), 3);
     }
 
     // ---------- opt-in Postgres tests ----------
