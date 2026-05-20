@@ -16,7 +16,7 @@ PREFIX="${PREFIX:-/usr/local}"
 VERSION="${VERSION:-}"
 
 err() { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
-info() { printf '\033[36m==>\033[0m %s\n' "$*"; }
+info() { printf '\033[36m==>\033[0m %s\n' "$*" >&2; }
 
 detect_target() {
     os="$(uname -s)"
