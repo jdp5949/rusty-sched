@@ -1,10 +1,5 @@
 //! Tick loop: poll `Store::jobs().due()`, recompute next_fire, optionally
-//! enqueue dispatch intents.
-//!
-//! Calendar gating and dep evaluation will be wired in once those resolvers
-//! are integrated with the store; for now the tick handles cron/interval/
-//! one-shot triggers and respects pause. Condition-triggered jobs are
-//! evaluated on every tick.
+//! enqueue dispatch intents. Condition-triggered jobs are evaluated each tick.
 
 use crate::condition_ctx::StoreUpstreamState;
 use crate::cron::next_fire;
@@ -30,8 +25,7 @@ impl Default for SchedulerConfig {
     }
 }
 
-/// Run a single tick: dispatch all due jobs, advance their `next_fire_at`.
-/// Also evaluates Condition-triggered jobs on every tick.
+/// Run a single tick: dispatch due jobs and evaluate Condition-triggered jobs.
 /// Returns the number of intents emitted.
 pub async fn tick_once(
     store: &Store,
@@ -42,7 +36,6 @@ pub async fn tick_once(
     let due = store.jobs().due(now).await?;
     let mut emitted = 0usize;
     for job in due {
-        // Persist run BEFORE dispatch (so on crash, run is recoverable).
         let run = Run::new(job.id, 1);
         store.runs().insert(&run).await?;
         let intent = DispatchIntent {
@@ -51,21 +44,16 @@ pub async fn tick_once(
         };
         if dispatcher.try_send(intent).is_err() {
             warn!(job = %job.name, "dispatch queue full, leaving run queued");
-            // queue is bounded — caller should observe and alert.
             continue;
         }
         emitted += 1;
         let next = compute_next(&job.trigger, now)?;
         store.jobs().set_next_fire(job.id, next).await?;
     }
-
-    // Evaluate Condition-triggered jobs separately (not in the due queue).
     emitted += tick_conditions(store, dispatcher).await?;
-
     Ok(emitted)
 }
 
-/// Evaluate all Condition-triggered jobs. Fire those whose expr == Some(true).
 async fn tick_conditions(store: &Store, dispatcher: &Dispatcher) -> Result<usize, SchedulerError> {
     let all_jobs = store.jobs().list().await?;
     let mut emitted = 0;
@@ -77,8 +65,6 @@ async fn tick_conditions(store: &Store, dispatcher: &Dispatcher) -> Result<usize
             Trigger::Condition { expr } => expr.clone(),
             _ => continue,
         };
-
-        // Parse expression — skip jobs with invalid exprs.
         let expr = match parse(&expr_str) {
             Ok(e) => e,
             Err(e) => {
@@ -86,10 +72,8 @@ async fn tick_conditions(store: &Store, dispatcher: &Dispatcher) -> Result<usize
                 continue;
             }
         };
-
         let ctx = StoreUpstreamState::new(store.clone()).await?;
         if evaluate(&expr, &ctx) == Some(true) {
-            // Only fire if not already queued/running.
             if store.runs().has_active_for_job(job.id).await? {
                 continue;
             }
@@ -104,7 +88,6 @@ async fn tick_conditions(store: &Store, dispatcher: &Dispatcher) -> Result<usize
                 continue;
             }
             emitted += 1;
-            // Clear next_fire so job doesn't appear in `due` query.
             store.jobs().set_next_fire(job.id, None).await?;
         }
     }
@@ -145,7 +128,6 @@ mod tests {
     async fn tick_emits_due_jobs() {
         let store = fresh_store().await;
         let (tx, mut rx) = Dispatcher::bounded(16);
-
         let job = JobBuilder::new(
             "j",
             "echo",
@@ -162,18 +144,14 @@ mod tests {
             .set_next_fire(job.id, Some(Utc::now() - ChronoDuration::seconds(1)))
             .await
             .unwrap();
-
         let n = tick_once(&store, &tx, Utc::now(), SchedulerConfig::default())
             .await
             .unwrap();
         assert_eq!(n, 1);
         let intent = rx.recv().await.unwrap();
         assert_eq!(intent.job.name, "j");
-
-        // next_fire_at advanced.
         let updated = store.jobs().get(job.id).await.unwrap();
         assert!(updated.next_fire_at.unwrap() > Utc::now());
-        // run persisted.
         let active = store.runs().list_active().await.unwrap();
         assert_eq!(active.len(), 1);
     }
@@ -199,7 +177,6 @@ mod tests {
             .await
             .unwrap();
         store.jobs().set_paused(job.id, true).await.unwrap();
-
         let n = tick_once(&store, &tx, Utc::now(), SchedulerConfig::default())
             .await
             .unwrap();
@@ -209,17 +186,12 @@ mod tests {
     #[tokio::test]
     async fn condition_job_fires_when_upstream_succeeds() {
         use rsched_core::RunState;
-
         let store = fresh_store().await;
         let (tx, mut rx) = Dispatcher::bounded(16);
-
-        // Job A: manual trigger.
         let job_a = JobBuilder::new("A", "echo", Trigger::Manual)
             .build()
             .unwrap();
         store.jobs().insert(&job_a).await.unwrap();
-
-        // Job B: fires when success(A).
         let job_b = JobBuilder::new(
             "B",
             "echo",
@@ -230,13 +202,11 @@ mod tests {
         .build()
         .unwrap();
         store.jobs().insert(&job_b).await.unwrap();
-
-        // Tick without A having run — B should not fire.
+        // B should not fire without A having run.
         let n = tick_once(&store, &tx, Utc::now(), SchedulerConfig::default())
             .await
             .unwrap();
         assert_eq!(n, 0);
-
         // Simulate A completing successfully.
         let run_a = Run::new(job_a.id, 1);
         store.runs().insert(&run_a).await.unwrap();
@@ -245,8 +215,7 @@ mod tests {
             .set_state(run_a.id, RunState::Success)
             .await
             .unwrap();
-
-        // Tick again — B should fire.
+        // B should fire now.
         let n = tick_once(&store, &tx, Utc::now(), SchedulerConfig::default())
             .await
             .unwrap();
