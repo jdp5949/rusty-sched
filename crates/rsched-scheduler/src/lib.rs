@@ -13,6 +13,6 @@ mod tick;
 
 pub use cron::next_fire;
 pub use dag::{deps_satisfied, has_cycle};
-pub use dispatch::{DispatchIntent, Dispatcher};
+pub use dispatch::{should_retry, DispatchIntent, Dispatcher};
 pub use error::SchedulerError;
 pub use tick::{tick_once, SchedulerConfig};
