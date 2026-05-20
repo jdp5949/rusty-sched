@@ -10,7 +10,7 @@ mod repo;
 
 pub use error::StoreError;
 pub use pool::{open_memory, open_pool};
-pub use repo::{AgentRepo, CalendarRepo, JobRepo, RunRepo, Store};
+pub use repo::{AgentRepo, CalendarRepo, JobRepo, LogRow, RunLogRepo, RunRepo, Store};
 
 /// Embedded migrations (run on [`Store::migrate`]).
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
