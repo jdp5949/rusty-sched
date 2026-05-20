@@ -306,8 +306,9 @@ mod tests {
     use tower::ServiceExt;
 
     async fn fresh_state() -> AppState {
-        let pool = rsched_store::open_memory().await.unwrap();
-        let store = Store::new(pool);
+        rsched_store::init_drivers();
+        let pool = rsched_store::open_pool("sqlite::memory:").await.unwrap();
+        let store = Store::with_url(pool, "sqlite::memory:");
         store.migrate().await.unwrap();
         AppState::new(store)
     }

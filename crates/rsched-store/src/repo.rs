@@ -4,28 +4,40 @@
 use crate::StoreError;
 use chrono::{DateTime, Utc};
 use rsched_core::{AgentId, Calendar, CalendarId, Job, JobId, Run, RunId, RunState, TriggerKind};
-use sqlx::{Row, SqlitePool};
+use sqlx::{AnyPool, Row};
 
 /// Wraps a pool + provides repo accessors.
 #[derive(Clone)]
 pub struct Store {
-    pool: SqlitePool,
+    pool: AnyPool,
+    url: String,
 }
 
 impl Store {
     /// Wrap an existing pool.
-    pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+    pub fn new(pool: AnyPool) -> Self {
+        Self {
+            pool,
+            url: String::new(),
+        }
+    }
+
+    /// Wrap a pool opened from a known URL (enables correct migrator selection).
+    pub fn with_url(pool: AnyPool, url: impl Into<String>) -> Self {
+        Self {
+            pool,
+            url: url.into(),
+        }
     }
 
     /// Run embedded migrations to head.
     pub async fn migrate(&self) -> Result<(), StoreError> {
-        crate::MIGRATOR.run(&self.pool).await?;
+        crate::migrator_for_url(&self.url).run(&self.pool).await?;
         Ok(())
     }
 
     /// Borrow underlying pool (for transactions / advanced use).
-    pub fn pool(&self) -> &SqlitePool {
+    pub fn pool(&self) -> &AnyPool {
         &self.pool
     }
 
@@ -89,7 +101,7 @@ fn run_state_from(s: &str) -> RunState {
 
 /// Repository for [`Job`].
 pub struct JobRepo<'a> {
-    pool: &'a SqlitePool,
+    pool: &'a AnyPool,
 }
 
 impl<'a> JobRepo<'a> {
@@ -291,7 +303,7 @@ impl<'a> JobRepo<'a> {
     }
 }
 
-fn row_to_job(row: &sqlx::sqlite::SqliteRow) -> Result<Job, StoreError> {
+fn row_to_job(row: &sqlx::any::AnyRow) -> Result<Job, StoreError> {
     use std::collections::HashMap;
     let id: String = row.try_get("id")?;
     let id: JobId = id
@@ -374,7 +386,7 @@ fn row_to_job(row: &sqlx::sqlite::SqliteRow) -> Result<Job, StoreError> {
 
 /// Repository for [`Run`].
 pub struct RunRepo<'a> {
-    pool: &'a SqlitePool,
+    pool: &'a AnyPool,
 }
 
 impl<'a> RunRepo<'a> {
@@ -454,7 +466,7 @@ impl<'a> RunRepo<'a> {
     }
 }
 
-fn row_to_run(row: &sqlx::sqlite::SqliteRow) -> Result<Run, StoreError> {
+fn row_to_run(row: &sqlx::any::AnyRow) -> Result<Run, StoreError> {
     let id: String = row.try_get("id")?;
     let id: RunId = id
         .parse()
@@ -504,7 +516,7 @@ fn row_to_run(row: &sqlx::sqlite::SqliteRow) -> Result<Run, StoreError> {
 
 /// Repository for [`Calendar`].
 pub struct CalendarRepo<'a> {
-    pool: &'a SqlitePool,
+    pool: &'a AnyPool,
 }
 
 impl<'a> CalendarRepo<'a> {
@@ -540,7 +552,7 @@ impl<'a> CalendarRepo<'a> {
 
 /// Repository for agents.
 pub struct AgentRepo<'a> {
-    pool: &'a SqlitePool,
+    pool: &'a AnyPool,
 }
 
 impl<'a> AgentRepo<'a> {
@@ -606,7 +618,7 @@ pub struct LogRow {
 
 /// Repository for run-log chunks stored in `run_logs`.
 pub struct RunLogRepo<'a> {
-    pool: &'a SqlitePool,
+    pool: &'a AnyPool,
 }
 
 impl<'a> RunLogRepo<'a> {
@@ -620,8 +632,8 @@ impl<'a> RunLogRepo<'a> {
         chunk: &[u8],
     ) -> Result<(), StoreError> {
         sqlx::query(
-            "INSERT OR IGNORE INTO run_logs (run_id, seq, ts, stream, chunk) \
-             VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO run_logs (run_id, seq, ts, stream, chunk) \
+             VALUES (?, ?, ?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING",
         )
         .bind(run_id)
         .bind(seq)
@@ -679,8 +691,9 @@ mod tests {
     use rsched_core::{JobBuilder, Trigger};
 
     async fn fresh_store() -> Store {
-        let pool = crate::open_memory().await.unwrap();
-        let store = Store::new(pool);
+        crate::pool::init_drivers();
+        let pool = crate::open_pool("sqlite::memory:").await.unwrap();
+        let store = Store::with_url(pool, "sqlite::memory:");
         store.migrate().await.unwrap();
         store
     }
@@ -910,5 +923,42 @@ mod tests {
         }
         let rows = store.run_logs().fetch(&id, None, 3).await.unwrap();
         assert_eq!(rows.len(), 3);
+    }
+
+    // ---------- opt-in Postgres tests ----------
+    // To run: RSCHED_PG_TEST_URL=postgres://postgres:test@localhost/rsched_test \
+    //   cargo test -p rsched-store -- pg_ --ignored
+    #[tokio::test]
+    #[ignore]
+    async fn pg_insert_get_list_due() {
+        let url = match std::env::var("RSCHED_PG_TEST_URL") {
+            Ok(u) => u,
+            Err(_) => return,
+        };
+        crate::pool::init_drivers();
+        let pool = crate::open_pool(&url).await.expect("pg connect");
+        let store = Store::with_url(pool, &url);
+        store.migrate().await.expect("pg migrate");
+
+        let job = JobBuilder::new("pg-job", "echo pg", cron_trigger())
+            .timeout(30)
+            .build()
+            .unwrap();
+        store.jobs().insert(&job).await.unwrap();
+        let back = store.jobs().get(job.id).await.unwrap();
+        assert_eq!(back.name, "pg-job");
+
+        let list = store.jobs().list().await.unwrap();
+        assert!(!list.is_empty());
+
+        store
+            .jobs()
+            .set_next_fire(job.id, Some(Utc::now() - chrono::Duration::seconds(1)))
+            .await
+            .unwrap();
+        let due = store.jobs().due(Utc::now()).await.unwrap();
+        assert!(!due.is_empty());
+
+        store.jobs().delete(job.id).await.unwrap();
     }
 }

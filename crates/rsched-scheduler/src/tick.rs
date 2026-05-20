@@ -79,8 +79,9 @@ mod tests {
     use rsched_store::Store;
 
     async fn fresh_store() -> Store {
-        let pool = rsched_store::open_memory().await.unwrap();
-        let s = Store::new(pool);
+        rsched_store::init_drivers();
+        let pool = rsched_store::open_pool("sqlite::memory:").await.unwrap();
+        let s = Store::with_url(pool, "sqlite::memory:");
         s.migrate().await.unwrap();
         s
     }
