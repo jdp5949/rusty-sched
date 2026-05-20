@@ -150,6 +150,22 @@ pub struct AlertConfig {
 mod tests {
     use super::*;
 
+    proptest::proptest! {
+        /// Exponential delay must never exceed max_secs, even for very large attempt numbers.
+        #[test]
+        fn exp_backoff_never_exceeds_max(attempt in 1u32..200, base in 1u64..100, max_s in 1u64..3600) {
+            let b = BackoffKind::Exponential { base_secs: base, max_secs: max_s };
+            proptest::prop_assert!(b.delay_for(attempt).as_secs() <= max_s);
+        }
+
+        /// Fixed backoff always returns exactly delay_secs regardless of attempt.
+        #[test]
+        fn fixed_backoff_constant(attempt in 1u32..100, delay in 0u64..3600) {
+            let b = BackoffKind::Fixed { delay_secs: delay };
+            proptest::prop_assert_eq!(b.delay_for(attempt).as_secs(), delay);
+        }
+    }
+
     #[test]
     fn exp_backoff_caps() {
         let b = BackoffKind::Exponential {
