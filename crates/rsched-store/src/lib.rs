@@ -10,7 +10,7 @@ mod repo;
 
 pub use error::StoreError;
 pub use pool::{init_drivers, open_memory, open_pool};
-pub use repo::{AgentRepo, CalendarRepo, JobRepo, LogRow, RunLogRepo, RunRepo, Store};
+pub use repo::{AgentRepo, CalendarRepo, JobRepo, JobStats, LogRow, RunLogRepo, RunRepo, Store};
 
 /// Embedded SQLite migrations.
 pub static MIGRATOR_SQLITE: sqlx::migrate::Migrator = sqlx::migrate!("./migrations/sqlite");

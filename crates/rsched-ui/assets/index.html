@@ -170,10 +170,49 @@ function RunDetail({ runId, onClose }) {
   );
 }
 
+function outcomeColor(o) {
+  if (o === 'success') return '#22c55e';
+  if (o === 'failure') return '#ef4444';
+  if (o === 'running') return '#f59e0b';
+  return '#94a3b8';
+}
+
+function Sparkline({ outcomes }) {
+  if (!outcomes || outcomes.length === 0) return null;
+  return (
+    <div style={{ display: 'flex', gap: '2px', alignItems: 'center' }}>
+      {outcomes.map((o, i) => (
+        <span key={i} title={o} style={{
+          display: 'inline-block',
+          width: '5px',
+          height: '10px',
+          borderRadius: '1px',
+          backgroundColor: outcomeColor(o),
+        }} />
+      ))}
+    </div>
+  );
+}
+
 function JobRow({ job, onChange }) {
   const [runs, setRuns] = useState(null);
   const [expandedRun, setExpandedRun] = useState(null);
   const [editing, setEditing] = useState(false);
+  const [stats, setStats] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchStats() {
+      try {
+        const s = await api("GET", `/stats/jobs/${job.id}`);
+        if (!cancelled) setStats(s);
+      } catch (_) {}
+    }
+    fetchStats();
+    const id = setInterval(fetchStats, 10000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [job.id]);
+
   async function act(path) {
     await api("POST", `/jobs/${job.id}/${path}`);
     onChange();
@@ -213,6 +252,20 @@ function JobRow({ job, onChange }) {
         <span>timeout: <span className="mono">{job.timeout_secs || 'inf'}s</span></span>
         <span>retry: <span className="mono">{job.retry.max_attempts}</span></span>
       </div>
+      {stats && (
+        <div className="mt-2 flex items-center gap-4 text-xs text-slate-500">
+          <span className="font-medium text-slate-700">
+            {Math.round(stats.success_rate_24h * 100)}% <span className="font-normal text-slate-400">(24h)</span>
+          </span>
+          <Sparkline outcomes={stats.recent_outcomes} />
+          <span className="text-slate-400">
+            p50: {stats.p50_duration_secs.toFixed(1)}s&nbsp;&nbsp;p99: {stats.p99_duration_secs.toFixed(1)}s
+          </span>
+          {stats.last_failure_at && (
+            <span className="text-red-400">last fail: {new Date(stats.last_failure_at).toLocaleString()}</span>
+          )}
+        </div>
+      )}
       {runs && (
         <div className="mt-3 border-t border-slate-100 pt-2">
           <div className="text-xs font-semibold text-slate-600 mb-2">Recent runs ({runs.length})</div>
