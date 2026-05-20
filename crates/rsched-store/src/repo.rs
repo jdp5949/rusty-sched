@@ -995,4 +995,41 @@ mod tests {
 
         store.jobs().delete(job.id).await.unwrap();
     }
+    // ---------- opt-in Postgres tests ----------
+    // To run: RSCHED_PG_TEST_URL=postgres://postgres:test@localhost/rsched_test \
+    //   cargo test -p rsched-store -- pg_ --ignored
+    #[tokio::test]
+    #[ignore]
+    async fn pg_insert_get_list_due() {
+        let url = match std::env::var("RSCHED_PG_TEST_URL") {
+            Ok(u) => u,
+            Err(_) => return,
+        };
+        crate::pool::init_drivers();
+        let pool = crate::open_pool(&url).await.expect("pg connect");
+        let store = Store::with_url(pool, &url);
+        store.migrate().await.expect("pg migrate");
+
+        let job = JobBuilder::new("pg-job", "echo pg", cron_trigger())
+            .timeout(30)
+            .build()
+            .unwrap();
+        store.jobs().insert(&job).await.unwrap();
+        let back = store.jobs().get(job.id).await.unwrap();
+        assert_eq!(back.name, "pg-job");
+
+        let list = store.jobs().list().await.unwrap();
+        assert!(!list.is_empty());
+
+        store
+            .jobs()
+            .set_next_fire(job.id, Some(Utc::now() - chrono::Duration::seconds(1)))
+            .await
+            .unwrap();
+        let due = store.jobs().due(Utc::now()).await.unwrap();
+        assert!(!due.is_empty());
+
+        store.jobs().delete(job.id).await.unwrap();
+    }
+
 }
