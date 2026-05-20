@@ -129,10 +129,29 @@ async fn run_server(bind: &str, db_override: Option<&str>) -> Result<()> {
                 run.started_at = Some(chrono::Utc::now());
                 let _ = store.runs().update(&run).await;
 
-                // Drain logs into bytes counter (full log_logs row storage is M6.1).
+                // Persist log chunks (capped at 100 MB per run).
+                const LOG_CAP: u64 = 100 * 1024 * 1024;
                 let mut bytes = 0u64;
+                let mut seq: i64 = 0;
+                let mut truncated = false;
                 while let Some(chunk) = handle.logs.next().await {
-                    bytes += chunk.bytes.len() as u64;
+                    let chunk_len = chunk.bytes.len() as u64;
+                    if !truncated && bytes + chunk_len <= LOG_CAP {
+                        let stream_str = match chunk.stream {
+                            rsched_agent::Stream::Stdout => "stdout",
+                            rsched_agent::Stream::Stderr => "stderr",
+                        };
+                        let ts = chunk.ts.to_rfc3339();
+                        let _ = store
+                            .run_logs()
+                            .append(&run_id.to_string(), seq, &ts, stream_str, &chunk.bytes)
+                            .await;
+                        seq += 1;
+                    } else if !truncated {
+                        truncated = true;
+                        run.log_truncated = true;
+                    }
+                    bytes += chunk_len;
                 }
 
                 match handle.outcome.await {

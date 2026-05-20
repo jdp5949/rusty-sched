@@ -1,12 +1,12 @@
 //! HTTP routes.
 
 use crate::{ApiError, AppState};
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use rsched_core::{
-    AlertConfig, BackoffKind, Job, JobId, MisfirePolicy, RetryPolicy, Shell, Target, Trigger,
+    AlertConfig, BackoffKind, Job, JobId, MisfirePolicy, RetryPolicy, RunId, Shell, Target, Trigger,
 };
 use rsched_scheduler::next_fire;
 use serde::{Deserialize, Serialize};
@@ -27,6 +27,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/jobs/:id/resume", post(resume_job))
         .route("/api/v1/jobs/:id/trigger", post(trigger_job))
         .route("/api/v1/jobs/:id/runs", get(list_runs_for_job))
+        .route("/api/v1/runs/:id", get(get_run))
+        .route("/api/v1/runs/:id/logs", get(get_run_logs))
         .with_state(state)
 }
 
@@ -248,6 +250,53 @@ async fn list_runs_for_job(
     Ok(Json(s.store.runs().list_for_job(id, 100).await?))
 }
 
+async fn get_run(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<rsched_core::Run>, ApiError> {
+    let id: RunId = id
+        .parse()
+        .map_err(|_| ApiError::Validation("bad run id".into()))?;
+    Ok(Json(s.store.runs().get(id).await?))
+}
+
+#[derive(Debug, Deserialize)]
+struct LogQuery {
+    from_seq: Option<i64>,
+    #[serde(default = "default_log_limit")]
+    limit: i64,
+}
+
+fn default_log_limit() -> i64 {
+    500
+}
+
+#[derive(Debug, Serialize)]
+struct LogRowResp {
+    seq: i64,
+    ts: String,
+    stream: String,
+    chunk: String,
+}
+
+async fn get_run_logs(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    Query(q): Query<LogQuery>,
+) -> Result<Json<Vec<LogRowResp>>, ApiError> {
+    let rows = s.store.run_logs().fetch(&id, q.from_seq, q.limit).await?;
+    let resp = rows
+        .into_iter()
+        .map(|r| LogRowResp {
+            seq: r.seq,
+            ts: r.ts,
+            stream: r.stream,
+            chunk: String::from_utf8_lossy(&r.chunk).into_owned(),
+        })
+        .collect();
+    Ok(Json(resp))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -395,5 +444,95 @@ mod tests {
             .await
             .unwrap();
         assert!(r.status().is_client_error() || r.status().is_server_error());
+    }
+
+    #[tokio::test]
+    async fn get_run_and_logs() {
+        use rsched_core::Run;
+        let state = fresh_state().await;
+        let body = serde_json::json!({"name":"log-job","trigger":{"kind":"manual"},"cmd":"echo"});
+        let app = router(state.clone());
+        let r = app
+            .clone()
+            .oneshot(req_json(Method::POST, "/api/v1/jobs", body))
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(r.into_body(), 65536).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let job_id: rsched_core::JobId = v["job"]["id"].as_str().unwrap().parse().unwrap();
+        let run = Run::new(job_id, 1);
+        state.store.runs().insert(&run).await.unwrap();
+        let run_id = run.id.to_string();
+        state
+            .store
+            .run_logs()
+            .append(&run_id, 0, "2026-01-01T00:00:00Z", "stdout", b"hello")
+            .await
+            .unwrap();
+        state
+            .store
+            .run_logs()
+            .append(&run_id, 1, "2026-01-01T00:00:01Z", "stderr", b"err")
+            .await
+            .unwrap();
+        // GET /runs/:id
+        let r = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v1/runs/{run_id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 200);
+        // GET /runs/:id/logs
+        let r = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v1/runs/{run_id}/logs"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 200);
+        let bytes = axum::body::to_bytes(r.into_body(), 65536).await.unwrap();
+        let logs: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(logs.len(), 2);
+        assert_eq!(logs[0]["chunk"].as_str().unwrap(), "hello");
+        assert_eq!(logs[1]["stream"].as_str().unwrap(), "stderr");
+        // from_seq=1
+        let r = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v1/runs/{run_id}/logs?from_seq=1"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(r.into_body(), 65536).await.unwrap();
+        let logs: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0]["seq"].as_i64().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn get_run_404() {
+        let app = router(fresh_state().await);
+        let r = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/runs/01ARZ3NDEKTSV4RRFFQ69G5FAV")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 404);
     }
 }
