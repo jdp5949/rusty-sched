@@ -27,7 +27,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/jobs/:id/resume", post(resume_job))
         .route("/api/v1/jobs/:id/trigger", post(trigger_job))
         .route("/api/v1/jobs/:id/runs", get(list_runs_for_job))
-        .route("/api/v1/runs/:id", get(get_run))
+        .route("/api/v1/runs/:id", get(get_run).delete(kill_run))
         .route("/api/v1/runs/:id/logs", get(get_run_logs))
         .route("/api/v1/stats/jobs/:id", get(job_stats))
         .with_state(state)
@@ -259,6 +259,17 @@ async fn get_run(
         .parse()
         .map_err(|_| ApiError::Validation("bad run id".into()))?;
     Ok(Json(s.store.runs().get(id).await?))
+}
+
+async fn kill_run(
+    State(state): State<AppState>,
+    Path(run_id): Path<String>,
+) -> impl axum::response::IntoResponse {
+    if state.registry.kill(&run_id) {
+        StatusCode::NO_CONTENT
+    } else {
+        StatusCode::NOT_FOUND
+    }
 }
 
 #[derive(Debug, Deserialize)]
