@@ -29,6 +29,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/jobs/:id/runs", get(list_runs_for_job))
         .route("/api/v1/runs/:id", get(get_run))
         .route("/api/v1/runs/:id/logs", get(get_run_logs))
+        .route("/api/v1/stats/jobs/:id", get(job_stats))
         .with_state(state)
 }
 
@@ -295,6 +296,17 @@ async fn get_run_logs(
         })
         .collect();
     Ok(Json(resp))
+}
+
+async fn job_stats(
+    State(s): State<AppState>,
+    Path(job_id): Path<String>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    match s.store.runs().job_stats(&job_id).await {
+        Ok(stats) => Json(stats).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
 }
 
 #[cfg(test)]
