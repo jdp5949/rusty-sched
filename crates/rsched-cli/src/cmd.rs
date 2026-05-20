@@ -3,6 +3,7 @@
 use crate::ApiClient;
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
+use rsched_jil::{parse as jil_parse, JilBlock};
 
 /// Top-level CLI.
 #[derive(Debug, Parser)]
@@ -76,6 +77,12 @@ pub enum Cmd {
         target: String,
         /// Event name: STARTJOB / KILLJOB / ON_HOLD / OFF_HOLD.
         event: String,
+    },
+    /// Parse an Autosys JIL file and apply each block to the cluster.
+    Jil {
+        /// Path to the JIL file.
+        #[arg(short, long)]
+        file: String,
     },
 }
 
@@ -161,6 +168,38 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
                         .map(|c| c.to_string())
                         .unwrap_or_else(|| "-".into()),
                 );
+            }
+        }
+        Cmd::Jil { file } => {
+            let input = std::fs::read_to_string(&file)?;
+            let blocks = jil_parse(&input).map_err(|e| anyhow!("JIL parse error: {e}"))?;
+            for block in blocks {
+                match block {
+                    JilBlock::Insert(spec) => {
+                        let name = spec.name.clone();
+                        let out = spec
+                            .into_job()
+                            .map_err(|e| anyhow!("translate error for {name}: {e}"))?;
+                        for w in &out.warnings {
+                            eprintln!("warn [{name}]: {w}");
+                        }
+                        let body = serde_json::to_value(&out.job)?;
+                        let resp = client.create_job(&body).await?;
+                        let id = resp["job"]["id"].as_str().unwrap_or("(unknown)");
+                        println!("inserted: {name} ({id})");
+                    }
+                    JilBlock::Update(name, partial) => {
+                        let id = client.resolve(&name).await?;
+                        let patch = serde_json::to_value(&partial)?;
+                        client.update_job(&id, &patch).await?;
+                        println!("updated: {name} ({id})");
+                    }
+                    JilBlock::Delete(name) => {
+                        let id = client.resolve(&name).await?;
+                        client.delete_job(&id).await?;
+                        println!("deleted: {name} ({id})");
+                    }
+                }
             }
         }
         Cmd::Sendevent { target, event } => {
