@@ -385,6 +385,25 @@ fn row_to_job(row: &sqlx::any::AnyRow) -> Result<Job, StoreError> {
     })
 }
 
+/// Aggregated stats for a job over the last 24 hours.
+#[derive(Debug, serde::Serialize)]
+pub struct JobStats {
+    /// Total runs in the last 24h.
+    pub total_24h: i64,
+    /// Successful runs in the last 24h.
+    pub success_24h: i64,
+    /// Success rate as a fraction [0.0, 1.0].
+    pub success_rate_24h: f64,
+    /// Median (p50) run duration in seconds.
+    pub p50_duration_secs: f64,
+    /// 99th-percentile run duration in seconds.
+    pub p99_duration_secs: f64,
+    /// RFC-3339 timestamp of the most recent failure, if any.
+    pub last_failure_at: Option<String>,
+    /// Last 20 run outcomes: "success" / "failure" / "running" / "unknown".
+    pub recent_outcomes: Vec<String>,
+}
+
 /// Repository for [`Run`].
 pub struct RunRepo<'a> {
     pool: &'a AnyPool,
@@ -486,6 +505,92 @@ impl<'a> RunRepo<'a> {
             .await?;
         rows.iter().map(row_to_run).collect()
     }
+
+    /// Compute stats for a job over the last 24 hours.
+    pub async fn job_stats(&self, job_id: &str) -> sqlx::Result<JobStats> {
+        let cutoff = (chrono::Utc::now() - chrono::Duration::hours(24)).to_rfc3339();
+        let rows = sqlx::query(
+            "SELECT state, started_at, finished_at FROM runs \
+             WHERE job_id = ? AND queued_at > ? \
+             ORDER BY queued_at DESC LIMIT 500",
+        )
+        .bind(job_id)
+        .bind(&cutoff)
+        .fetch_all(self.pool)
+        .await?;
+
+        let total_24h = rows.len() as i64;
+        let mut success_24h: i64 = 0;
+        let mut durations: Vec<f64> = Vec::new();
+        let mut last_failure_at: Option<String> = None;
+        let mut recent_outcomes: Vec<String> = Vec::new();
+
+        for row in &rows {
+            let state: String = row.try_get("state").unwrap_or_default();
+            let started: Option<String> = row.try_get("started_at").unwrap_or(None);
+            let finished: Option<String> = row.try_get("finished_at").unwrap_or(None);
+
+            let outcome = map_outcome(&state);
+            if recent_outcomes.len() < 20 {
+                recent_outcomes.push(outcome.to_string());
+            }
+
+            if state == "success" {
+                success_24h += 1;
+            } else if (state == "failed" || state == "killed") && last_failure_at.is_none() {
+                last_failure_at = finished.clone().or_else(|| started.clone());
+            }
+
+            if let (Some(s), Some(f)) = (started, finished) {
+                if let (Ok(st), Ok(ft)) = (
+                    chrono::DateTime::parse_from_rfc3339(&s),
+                    chrono::DateTime::parse_from_rfc3339(&f),
+                ) {
+                    let secs = (ft - st).num_milliseconds() as f64 / 1000.0;
+                    if secs >= 0.0 {
+                        durations.push(secs);
+                    }
+                }
+            }
+        }
+
+        let success_rate_24h = if total_24h > 0 {
+            success_24h as f64 / total_24h as f64
+        } else {
+            0.0
+        };
+
+        durations.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let p50 = percentile(&durations, 50.0);
+        let p99 = percentile(&durations, 99.0);
+
+        Ok(JobStats {
+            total_24h,
+            success_24h,
+            success_rate_24h,
+            p50_duration_secs: p50,
+            p99_duration_secs: p99,
+            last_failure_at,
+            recent_outcomes,
+        })
+    }
+}
+
+fn map_outcome(state: &str) -> &'static str {
+    match state {
+        "success" => "success",
+        "failed" | "killed" | "lost" => "failure",
+        "running" | "queued" => "running",
+        _ => "unknown",
+    }
+}
+
+fn percentile(sorted: &[f64], pct: f64) -> f64 {
+    if sorted.is_empty() {
+        return 0.0;
+    }
+    let idx = ((pct / 100.0) * (sorted.len() - 1) as f64).round() as usize;
+    sorted[idx.min(sorted.len() - 1)]
 }
 
 fn row_to_run(row: &sqlx::any::AnyRow) -> Result<Run, StoreError> {
