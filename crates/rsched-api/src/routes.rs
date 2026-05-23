@@ -110,6 +110,7 @@ async fn list_jobs(State(s): State<AppState>) -> Result<Json<Vec<Job>>, ApiError
 
 async fn create_job(
     State(s): State<AppState>,
+    crate::auth::RequireWrite(ctx): crate::auth::RequireWrite,
     Json(req): Json<CreateJobReq>,
 ) -> Result<(StatusCode, Json<JobResp>), ApiError> {
     let now = chrono::Utc::now();
@@ -155,6 +156,17 @@ async fn create_job(
     };
     job.validate()?;
     s.store.jobs().insert(&job).await?;
+    let _ = s
+        .store
+        .audit()
+        .record(
+            Some(&ctx.user_id.to_string()),
+            "job.create",
+            "job",
+            Some(&job.id.to_string()),
+            None,
+        )
+        .await;
     Ok((StatusCode::CREATED, Json(JobResp { job })))
 }
 
@@ -167,39 +179,76 @@ async fn get_job(State(s): State<AppState>, Path(id): Path<String>) -> Result<Js
 
 async fn delete_job(
     State(s): State<AppState>,
+    crate::auth::RequireWrite(ctx): crate::auth::RequireWrite,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     let id: JobId = id
         .parse()
         .map_err(|_| ApiError::Validation("bad job id".into()))?;
     s.store.jobs().delete(id).await?;
+    let _ = s
+        .store
+        .audit()
+        .record(
+            Some(&ctx.user_id.to_string()),
+            "job.delete",
+            "job",
+            Some(&id.to_string()),
+            None,
+        )
+        .await;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn pause_job(
     State(s): State<AppState>,
+    crate::auth::RequireWrite(ctx): crate::auth::RequireWrite,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     let id: JobId = id
         .parse()
         .map_err(|_| ApiError::Validation("bad job id".into()))?;
     s.store.jobs().set_paused(id, true).await?;
+    let _ = s
+        .store
+        .audit()
+        .record(
+            Some(&ctx.user_id.to_string()),
+            "job.pause",
+            "job",
+            Some(&id.to_string()),
+            None,
+        )
+        .await;
     Ok(StatusCode::OK)
 }
 
 async fn resume_job(
     State(s): State<AppState>,
+    crate::auth::RequireWrite(ctx): crate::auth::RequireWrite,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     let id: JobId = id
         .parse()
         .map_err(|_| ApiError::Validation("bad job id".into()))?;
     s.store.jobs().set_paused(id, false).await?;
+    let _ = s
+        .store
+        .audit()
+        .record(
+            Some(&ctx.user_id.to_string()),
+            "job.resume",
+            "job",
+            Some(&id.to_string()),
+            None,
+        )
+        .await;
     Ok(StatusCode::OK)
 }
 
 async fn trigger_job(
     State(s): State<AppState>,
+    crate::auth::RequireWrite(ctx): crate::auth::RequireWrite,
     Path(id): Path<String>,
 ) -> Result<Json<rsched_core::Run>, ApiError> {
     let id: JobId = id
@@ -214,6 +263,17 @@ async fn trigger_job(
         .jobs()
         .set_next_fire(id, Some(chrono::Utc::now()))
         .await?;
+    let _ = s
+        .store
+        .audit()
+        .record(
+            Some(&ctx.user_id.to_string()),
+            "job.trigger",
+            "job",
+            Some(&id.to_string()),
+            None,
+        )
+        .await;
     // Return a stub run record so the CLI has something to print; the actual
     // Run row is created by the tick loop when it picks the job up (within ~1s).
     let run = rsched_core::Run::new(id, 1);
@@ -229,6 +289,7 @@ async fn get_job_by_name(
 
 async fn update_job(
     State(s): State<AppState>,
+    crate::auth::RequireWrite(ctx): crate::auth::RequireWrite,
     Path(id): Path<String>,
     Json(req): Json<CreateJobReq>,
 ) -> Result<Json<JobResp>, ApiError> {
@@ -276,6 +337,17 @@ async fn update_job(
     };
     job.validate()?;
     s.store.jobs().update(&job).await?;
+    let _ = s
+        .store
+        .audit()
+        .record(
+            Some(&ctx.user_id.to_string()),
+            "job.update",
+            "job",
+            Some(&id.to_string()),
+            None,
+        )
+        .await;
     Ok(Json(JobResp { job }))
 }
 
@@ -301,9 +373,21 @@ async fn get_run(
 
 async fn kill_run(
     State(state): State<AppState>,
+    crate::auth::RequireWrite(ctx): crate::auth::RequireWrite,
     Path(run_id): Path<String>,
 ) -> impl axum::response::IntoResponse {
     if state.registry.kill(&run_id) {
+        let _ = state
+            .store
+            .audit()
+            .record(
+                Some(&ctx.user_id.to_string()),
+                "run.kill",
+                "run",
+                Some(&run_id),
+                None,
+            )
+            .await;
         StatusCode::NO_CONTENT
     } else {
         StatusCode::NOT_FOUND
@@ -483,12 +567,61 @@ mod tests {
         AppState::new(store)
     }
 
+    /// Seed an admin user + active session and return the cookie header
+    /// value `"rsched_session=<token>"` to attach to authed requests.
+    async fn seed_admin(state: &AppState) -> String {
+        use bcrypt::{hash, DEFAULT_COST};
+        use rsched_core::{Role, UserId};
+        let uid = UserId::new();
+        let pw_hash = hash("test-password", DEFAULT_COST).unwrap();
+        state
+            .store
+            .users()
+            .insert(uid, "test-admin", &pw_hash, Role::Admin)
+            .await
+            .unwrap();
+        let token = "test-session-token-aaaaaaaa".to_string();
+        let exp = chrono::Utc::now() + chrono::Duration::hours(1);
+        state
+            .store
+            .sessions()
+            .insert(&token, uid, exp, None)
+            .await
+            .unwrap();
+        format!("rsched_session={token}")
+    }
+
     fn req_json(method: Method, uri: &str, body: serde_json::Value) -> Request<Body> {
         Request::builder()
             .method(method)
             .uri(uri)
             .header("content-type", "application/json")
             .body(Body::from(body.to_string()))
+            .unwrap()
+    }
+
+    /// Like [`req_json`] but with a session cookie attached.
+    fn req_json_auth(
+        method: Method,
+        uri: &str,
+        body: serde_json::Value,
+        cookie: &str,
+    ) -> Request<Body> {
+        Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("content-type", "application/json")
+            .header("cookie", cookie)
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    }
+
+    fn req_auth(method: Method, uri: &str, cookie: &str) -> Request<Body> {
+        Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("cookie", cookie)
+            .body(Body::empty())
             .unwrap()
     }
 
@@ -509,7 +642,9 @@ mod tests {
 
     #[tokio::test]
     async fn create_list_get_job() {
-        let app = router(fresh_state().await);
+        let state = fresh_state().await;
+        let cookie = seed_admin(&state).await;
+        let app = router(state);
         let body = serde_json::json!({
             "name": "my-job",
             "trigger": {"kind":"cron","expr":"*/5 * * * *"},
@@ -517,19 +652,14 @@ mod tests {
         });
         let r = app
             .clone()
-            .oneshot(req_json(Method::POST, "/api/v1/jobs", body))
+            .oneshot(req_json_auth(Method::POST, "/api/v1/jobs", body, &cookie))
             .await
             .unwrap();
         assert_eq!(r.status(), 201);
 
         let r = app
             .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/api/v1/jobs")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(req_auth(Method::GET, "/api/v1/jobs", &cookie))
             .await
             .unwrap();
         assert_eq!(r.status(), 200);
@@ -540,8 +670,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pause_resume_trigger() {
+    async fn anonymous_writes_rejected() {
         let app = router(fresh_state().await);
+        let body = serde_json::json!({
+            "name": "anon-job",
+            "trigger": {"kind":"manual"},
+            "cmd": "echo"
+        });
+        let r = app
+            .oneshot(req_json(Method::POST, "/api/v1/jobs", body))
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 401);
+    }
+
+    #[tokio::test]
+    async fn pause_resume_trigger() {
+        let state = fresh_state().await;
+        let cookie = seed_admin(&state).await;
+        let app = router(state);
         let body = serde_json::json!({
             "name": "x",
             "trigger": {"kind":"manual"},
@@ -549,7 +696,7 @@ mod tests {
         });
         let r = app
             .clone()
-            .oneshot(req_json(Method::POST, "/api/v1/jobs", body))
+            .oneshot(req_json_auth(Method::POST, "/api/v1/jobs", body, &cookie))
             .await
             .unwrap();
         let bytes = axum::body::to_bytes(r.into_body(), 65536).await.unwrap();
@@ -559,13 +706,11 @@ mod tests {
         // pause
         let r = app
             .clone()
-            .oneshot(
-                Request::builder()
-                    .method(Method::POST)
-                    .uri(format!("/api/v1/jobs/{id}/pause"))
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(req_auth(
+                Method::POST,
+                &format!("/api/v1/jobs/{id}/pause"),
+                &cookie,
+            ))
             .await
             .unwrap();
         assert_eq!(r.status(), 200);
@@ -573,13 +718,11 @@ mod tests {
         // trigger
         let r = app
             .clone()
-            .oneshot(
-                Request::builder()
-                    .method(Method::POST)
-                    .uri(format!("/api/v1/jobs/{id}/trigger"))
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(req_auth(
+                Method::POST,
+                &format!("/api/v1/jobs/{id}/trigger"),
+                &cookie,
+            ))
             .await
             .unwrap();
         assert_eq!(r.status(), 200);
@@ -587,12 +730,11 @@ mod tests {
         // list runs
         let r = app
             .clone()
-            .oneshot(
-                Request::builder()
-                    .uri(format!("/api/v1/jobs/{id}/runs"))
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(req_auth(
+                Method::GET,
+                &format!("/api/v1/jobs/{id}/runs"),
+                &cookie,
+            ))
             .await
             .unwrap();
         let bytes = axum::body::to_bytes(r.into_body(), 65536).await.unwrap();
@@ -604,14 +746,16 @@ mod tests {
 
     #[tokio::test]
     async fn invalid_cron_rejected() {
-        let app = router(fresh_state().await);
+        let state = fresh_state().await;
+        let cookie = seed_admin(&state).await;
+        let app = router(state);
         let body = serde_json::json!({
             "name": "bad",
             "trigger": {"kind":"cron","expr":""},
             "cmd": "echo"
         });
         let r = app
-            .oneshot(req_json(Method::POST, "/api/v1/jobs", body))
+            .oneshot(req_json_auth(Method::POST, "/api/v1/jobs", body, &cookie))
             .await
             .unwrap();
         assert!(r.status().is_client_error() || r.status().is_server_error());
@@ -621,11 +765,12 @@ mod tests {
     async fn get_run_and_logs() {
         use rsched_core::Run;
         let state = fresh_state().await;
+        let cookie = seed_admin(&state).await;
         let body = serde_json::json!({"name":"log-job","trigger":{"kind":"manual"},"cmd":"echo"});
         let app = router(state.clone());
         let r = app
             .clone()
-            .oneshot(req_json(Method::POST, "/api/v1/jobs", body))
+            .oneshot(req_json_auth(Method::POST, "/api/v1/jobs", body, &cookie))
             .await
             .unwrap();
         let bytes = axum::body::to_bytes(r.into_body(), 65536).await.unwrap();
