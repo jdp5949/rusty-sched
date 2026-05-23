@@ -46,6 +46,28 @@ pub struct JobSpec {
     pub std_err_file: Option<String>,
     /// Box that contains this job.
     pub box_name: Option<String>,
+    /// Calendar to *exclude* (job blocked when this calendar allows).
+    pub exclude_calendar: Option<String>,
+    /// "HH:MM,HH:MM,..." times the job must start by.
+    pub must_start_times: Option<String>,
+    /// "HH:MM,HH:MM,..." times the job must complete by.
+    pub must_complete_times: Option<String>,
+    /// "100,101,..." exit codes that are always Failure.
+    pub fail_codes: Option<String>,
+    /// Maximum exit code considered Success (default 0).
+    pub max_exit_success: Option<i32>,
+    /// Exit code mapped to Conditional outcome.
+    pub condition_code: Option<i32>,
+    /// (Box only) condition expression for box success.
+    pub box_success: Option<String>,
+    /// (Box only) condition expression for box failure.
+    pub box_failure: Option<String>,
+    /// (Box only) terminate children on box failure.
+    pub box_terminator: Option<bool>,
+    /// (Box only) propagate kill to children when box fails.
+    pub job_terminator: Option<bool>,
+    /// (Box only) auto-hold children when box transitions to Running.
+    pub auto_hold: Option<bool>,
     /// Warnings collected during parse (unknown attributes etc.).
     pub warnings: Vec<String>,
 }
@@ -80,6 +102,64 @@ pub struct PartialJobSpec {
     pub std_err_file: Option<String>,
     /// Box membership.
     pub box_name: Option<String>,
+    /// Exclude-calendar.
+    pub exclude_calendar: Option<String>,
+    /// Must-start times.
+    pub must_start_times: Option<String>,
+    /// Must-complete times.
+    pub must_complete_times: Option<String>,
+    /// Fail codes CSV.
+    pub fail_codes: Option<String>,
+    /// Max exit success.
+    pub max_exit_success: Option<i32>,
+    /// Condition code.
+    pub condition_code: Option<i32>,
+    /// Box success expr.
+    pub box_success: Option<String>,
+    /// Box failure expr.
+    pub box_failure: Option<String>,
+    /// Box terminator.
+    pub box_terminator: Option<bool>,
+    /// Job terminator.
+    pub job_terminator: Option<bool>,
+    /// Auto hold.
+    pub auto_hold: Option<bool>,
     /// Warnings.
     pub warnings: Vec<String>,
+}
+
+impl JobSpec {
+    /// Build a new spec for a command job with all new fields defaulted to None.
+    /// Convenience used in tests.
+    pub fn empty(name: impl Into<String>, job_type: JilJobType) -> Self {
+        Self {
+            name: name.into(),
+            job_type,
+            command: None,
+            machine: None,
+            owner: None,
+            days_of_week: None,
+            start_times: None,
+            condition: None,
+            alarm_if_fail: false,
+            n_retrys: 0,
+            term_run_time: None,
+            description: None,
+            std_out_file: None,
+            std_err_file: None,
+            box_name: None,
+            exclude_calendar: None,
+            must_start_times: None,
+            must_complete_times: None,
+            fail_codes: None,
+            max_exit_success: None,
+            condition_code: None,
+            box_success: None,
+            box_failure: None,
+            box_terminator: None,
+            job_terminator: None,
+            auto_hold: None,
+            warnings: Vec::new(),
+        }
+    }
 }

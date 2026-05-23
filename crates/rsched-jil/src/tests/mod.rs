@@ -225,3 +225,80 @@ fn file_watcher_job_type() {
         _ => panic!(),
     }
 }
+
+const AUTOSYS_PARITY_JIL: &str = r#"
+insert_job: prod_pipeline   job_type: c
+command: /opt/etl/run.sh
+machine: etl-prod-01
+days_of_week: mo,tu,we,th,fr
+start_times: "02:00"
+exclude_calendar: company_holidays
+must_start_times: "02:05"
+must_complete_times: "04:00,06:00"
+fail_codes: "100,101,102"
+max_exit_success: 2
+condition_code: 7
+alarm_if_fail: y
+
+insert_job: prod_pipeline_box   job_type: box
+description: "Container"
+box_success: success(child_a) and success(child_b)
+box_failure: failure(child_a) or failure(child_b)
+box_terminator: y
+job_terminator: y
+auto_hold: y
+"#;
+
+#[test]
+fn autosys_parity_attrs_parse() {
+    let blocks = parse(AUTOSYS_PARITY_JIL).unwrap();
+    assert_eq!(blocks.len(), 2);
+
+    match &blocks[0] {
+        JilBlock::Insert(spec) => {
+            assert_eq!(spec.exclude_calendar.as_deref(), Some("company_holidays"));
+            assert_eq!(spec.must_start_times.as_deref(), Some("02:05"));
+            assert_eq!(spec.must_complete_times.as_deref(), Some("04:00,06:00"));
+            assert_eq!(spec.fail_codes.as_deref(), Some("100,101,102"));
+            assert_eq!(spec.max_exit_success, Some(2));
+            assert_eq!(spec.condition_code, Some(7));
+        }
+        _ => panic!("expected insert"),
+    }
+
+    match &blocks[1] {
+        JilBlock::Insert(spec) => {
+            assert_eq!(spec.job_type, JilJobType::Box);
+            assert!(spec
+                .box_success
+                .as_deref()
+                .map(|s| s.contains("success(child_a)"))
+                .unwrap_or(false));
+            assert_eq!(spec.box_terminator, Some(true));
+            assert_eq!(spec.job_terminator, Some(true));
+            assert_eq!(spec.auto_hold, Some(true));
+        }
+        _ => panic!("expected insert"),
+    }
+}
+
+#[test]
+fn autosys_parity_translate_to_job() {
+    let blocks = parse(AUTOSYS_PARITY_JIL).unwrap();
+    match &blocks[0] {
+        JilBlock::Insert(spec) => {
+            let out = spec.clone().into_job().unwrap();
+            assert_eq!(out.job.exit_policy.max_exit_success, 2);
+            assert_eq!(out.job.exit_policy.fail_codes, vec![100, 101, 102]);
+            assert_eq!(out.job.exit_policy.condition_code, Some(7));
+            assert_eq!(out.job.must_start_times.len(), 1);
+            assert_eq!(out.job.must_complete_times.len(), 2);
+            // exclude_calendar resolution is deferred to apply step.
+            assert!(out
+                .warnings
+                .iter()
+                .any(|w| w.contains("exclude_calendar")));
+        }
+        _ => panic!(),
+    }
+}
