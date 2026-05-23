@@ -1,6 +1,24 @@
 # Project notes — post v0.1.0 (2026-05-19)
 
-## v0.4.0 (in progress — branch `feat/v0.4-auth-rbac-apikeys`, 2026-05-23)
+## v0.7.0-alpha (in progress — branch `feat/v0.7-ui-polish-themes`, 2026-05-23)
+
+UI polish slice — Cronicle-style multi-page dashboard, theme toggle, search.
+
+### Shipped
+- Tab navigation: Jobs / API keys / Users (admin) / Audit (admin)
+- Dark mode toggle (persists in localStorage, respects `prefers-color-scheme`)
+- Job filter box (matches name OR command)
+- `ApiKeysPage` — create / list / delete keys; plaintext token shown once
+- `UsersPage` (admin) — create users with role; list with status
+- `AuditPage` (admin) — recent audit entries, auto-refreshes every 10s
+- Login + header + all cards picked up `dark:` variants
+
+### Deferred → later v0.7 slices
+- Visual DAG/box workflow editor
+- Performance graphs (CPU/mem time series)
+- Cronicle-compatible plugin host (JSON-over-stdio)
+
+## v0.4.0 (merged 2026-05-23 — PR #31)
 
 Auth + RBAC + API keys. First security slice.
 
