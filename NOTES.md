@@ -1,6 +1,27 @@
 # Project notes — post v0.1.0 (2026-05-19)
 
-## v0.7.0-alpha (in progress — branch `feat/v0.7-ui-polish-themes`, 2026-05-23)
+## v0.4.1 (in progress — branch `feat/v0.4.1-rbac-enforcement`, 2026-05-23)
+
+Lock down mutation routes. Anonymous writes now return 401.
+
+### Shipped
+- `RequireWrite` extractor enforced on: `POST /jobs`, `PUT /jobs/:id`,
+  `DELETE /jobs/:id`, `POST /jobs/:id/pause`, `/resume`, `/trigger`,
+  `DELETE /runs/:id`
+- Audit log entries on every write: `job.create`, `job.update`, `job.delete`,
+  `job.pause`, `job.resume`, `job.trigger`, `run.kill`
+- CLI client reads `RSCHED_TOKEN` env var and sends `Authorization: Bearer …`
+  on every request
+- Integration tests seed an admin + session cookie and pass it to all write
+  requests; new `anonymous_writes_rejected` test confirms 401 without creds
+
+### Out of scope (deferred)
+- CSRF tokens for cookie-only flow (current SameSite=Lax suffices for now)
+- Password change + admin reset routes
+- User disable/delete + own-key restrictions for non-admin users
+- Webhook trigger endpoint auth-bypass (file/webhook triggers are M7)
+
+## v0.7.0-alpha (merged 2026-05-23 — PR #32)
 
 UI polish slice — Cronicle-style multi-page dashboard, theme toggle, search.
 

@@ -13,10 +13,26 @@ pub struct ApiClient {
 
 impl ApiClient {
     /// Construct from a base URL (`http://host:port`).
+    ///
+    /// Reads `RSCHED_TOKEN` from the environment; if set, every request includes
+    /// `Authorization: Bearer <token>` so the CLI can authenticate against the
+    /// v0.4+ RBAC-protected mutation routes. Set the token via
+    /// `POST /api/v1/auth/api-keys` from the UI and export it before running CLI.
     pub fn new(base: impl Into<String>) -> Self {
+        let mut builder = reqwest::Client::builder();
+        if let Ok(tok) = std::env::var("RSCHED_TOKEN") {
+            if !tok.trim().is_empty() {
+                let mut headers = reqwest::header::HeaderMap::new();
+                let value = format!("Bearer {}", tok.trim());
+                if let Ok(hv) = reqwest::header::HeaderValue::from_str(&value) {
+                    headers.insert(reqwest::header::AUTHORIZATION, hv);
+                    builder = builder.default_headers(headers);
+                }
+            }
+        }
         Self {
             base: base.into(),
-            http: reqwest::Client::new(),
+            http: builder.build().unwrap_or_else(|_| reqwest::Client::new()),
         }
     }
 
