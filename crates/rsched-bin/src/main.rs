@@ -147,7 +147,11 @@ async fn run_server(
                         return;
                     }
                 };
-                registry_ref.insert(run_id.to_string(), handle.kill_tx.clone());
+                registry_ref.insert(
+                    run_id.to_string(),
+                    handle.kill_tx.clone(),
+                    handle.signal_tx.clone(),
+                );
 
                 // Mark as running.
                 let mut run = intent.run.clone();

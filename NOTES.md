@@ -1,6 +1,26 @@
 # Project notes — post v0.1.0 (2026-05-19)
 
-## v0.6.1 (in progress — branch `feat/v0.6.1-change-status`, 2026-05-23)
+## v0.6.2 (in progress — branch `feat/v0.6.2-send-signal`, 2026-05-23)
+
+SEND_SIGNAL verb. Forward unix signals (HUP/TERM/USR1/USR2/etc.) to
+running jobs.
+
+### Shipped
+- `RunHandle.signal_tx: mpsc::Sender<i32>` added to executor trait
+- `LocalExecutor`: side task drains the signal channel and calls `libc::kill`
+  with the requested signal. No-op + warn on Windows.
+- `HandleRegistry::signal(run_id, sig)` — keeps the run in the registry
+  (signal is not necessarily terminal).
+- `POST /api/v1/runs/:id/signal {signal}` (RequireWrite + audit).
+  Accepts numeric (1-64) or name forms (`SIGTERM`, `TERM`, `HUP`, …).
+- CLI: `sendevent <job> SEND_SIGNAL=TERM` resolves to the running run
+  and forwards the signal.
+
+### Out of scope
+- mTLS gRPC remote agent (M4-full) — signals are local-exec only
+- Realtime CPU/mem charts in UI (v0.7-cont)
+
+## v0.6.1 (merged 2026-05-23 — PR #38)
 
 CHANGE_STATUS verb. Manual run-state transitions for admin/operator.
 

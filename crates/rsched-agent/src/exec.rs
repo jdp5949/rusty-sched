@@ -53,8 +53,14 @@ pub struct RunHandle {
     pub logs: LogStream,
     /// Future that resolves when the run completes.
     pub outcome: tokio::task::JoinHandle<Result<RunOutcome, AgentError>>,
-    /// Send `()` here to request graceful termination.
+    /// Send `()` here to request graceful termination (`SIGKILL` on unix,
+    /// `TerminateProcess` on Windows).
     pub kill_tx: mpsc::Sender<()>,
+    /// Send a unix signal number here (e.g. 15 = SIGTERM, 1 = SIGHUP).
+    /// Returns Ok even if the run already exited or the platform doesn't
+    /// support arbitrary signals (Windows). Use [`RunHandle::kill_tx`] for
+    /// the cross-platform "stop now" path.
+    pub signal_tx: mpsc::Sender<i32>,
 }
 
 /// Abstraction over "where jobs run."

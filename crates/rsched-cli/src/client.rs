@@ -190,6 +190,17 @@ impl ApiClient {
             .collect())
     }
 
+    /// Send a unix signal to a running run (Autosys SEND_SIGNAL).
+    pub async fn signal_run(&self, run_id: &str, signal: &str) -> Result<()> {
+        self.http
+            .post(format!("{}/api/v1/runs/{}/signal", self.base, run_id))
+            .json(&serde_json::json!({"signal": signal}))
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(())
+    }
+
     /// Change a run's state (Autosys CHANGE_STATUS verb).
     pub async fn change_run_state(&self, run_id: &str, state: &str) -> Result<()> {
         self.http

@@ -30,8 +30,10 @@ impl Executor for LocalExecutor {
     async fn dispatch(&self, run_id: RunId, job: Job) -> Result<RunHandle, AgentError> {
         let (log_tx, log_rx) = mpsc::channel::<LogChunk>(256);
         let (kill_tx, mut kill_rx) = mpsc::channel::<()>(1);
+        let (signal_tx, mut signal_rx) = mpsc::channel::<i32>(4);
 
         let mut child = spawn_child(&job)?;
+        let pid = child.id();
         let mut stdout = child.stdout.take().expect("stdout piped");
         let mut stderr = child.stderr.take().expect("stderr piped");
 
@@ -41,6 +43,15 @@ impl Executor for LocalExecutor {
             tokio::spawn(async move { stream_pipe(&mut stdout, Stream::Stdout, log_tx_o).await });
         let stderr_task =
             tokio::spawn(async move { stream_pipe(&mut stderr, Stream::Stderr, log_tx_e).await });
+
+        // Forward signal requests to libc::kill in a side task — keeps the
+        // outcome `select!` clean and lets us send multiple signals over the
+        // lifetime of a run.
+        tokio::spawn(async move {
+            while let Some(s) = signal_rx.recv().await {
+                send_unix_signal(pid, s, run_id);
+            }
+        });
 
         let timeout_secs = job.timeout_secs;
         let outcome = tokio::spawn(async move {
@@ -92,7 +103,32 @@ impl Executor for LocalExecutor {
             logs: ReceiverStream::new(log_rx),
             outcome,
             kill_tx,
+            signal_tx,
         })
+    }
+}
+
+/// Send a unix signal to a child PID. No-op on Windows (logs a warning).
+fn send_unix_signal(pid: Option<u32>, sig: i32, run_id: RunId) {
+    #[cfg(unix)]
+    {
+        if let Some(pid) = pid {
+            // SAFETY: pid is an OS-issued PID; kill(2) is safe for any pid.
+            let rc = unsafe { libc::kill(pid as i32, sig) };
+            if rc != 0 {
+                warn!(%run_id, %sig, errno = std::io::Error::last_os_error().raw_os_error(), "kill(2) failed");
+            } else {
+                debug!(%run_id, %sig, "signal sent");
+            }
+        } else {
+            warn!(%run_id, "cannot signal: pid unavailable");
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        let _ = sig;
+        warn!(%run_id, "SEND_SIGNAL is not supported on this platform");
     }
 }
 

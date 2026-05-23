@@ -54,6 +54,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/jobs/:id/runs", get(list_runs_for_job))
         .route("/api/v1/runs/:id", get(get_run).delete(kill_run))
         .route("/api/v1/runs/:id/state", post(change_run_state))
+        .route("/api/v1/runs/:id/signal", post(signal_run))
         .route("/api/v1/runs/:id/logs", get(get_run_logs))
         .route("/api/v1/runs/:id/logs/ws", get(ws_run_logs))
         .route("/api/v1/stats/jobs/:id", get(job_stats))
@@ -664,6 +665,61 @@ fn new_state_str(s: RunState) -> &'static str {
         RunState::Skipped => "skipped",
         RunState::Lost => "lost",
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct SignalReq {
+    /// Signal number or name (`TERM`, `SIGTERM`, `HUP`, `15`, etc.).
+    signal: String,
+}
+
+/// Autosys-style `sendevent SEND_SIGNAL=<sig>`: deliver a unix signal to a
+/// running run. No-op on Windows (returns 200 with a warning).
+async fn signal_run(
+    State(state): State<AppState>,
+    crate::auth::RequireWrite(ctx): crate::auth::RequireWrite,
+    Path(run_id): Path<String>,
+    Json(req): Json<SignalReq>,
+) -> Result<StatusCode, ApiError> {
+    let sig = parse_signal(&req.signal)
+        .ok_or_else(|| ApiError::Validation(format!("bad signal {:?}", req.signal)))?;
+    if !state.registry.signal(&run_id, sig) {
+        return Err(ApiError::NotFound(run_id));
+    }
+    let _ = state
+        .store
+        .audit()
+        .record(
+            Some(&ctx.user_id.to_string()),
+            "run.signal",
+            "run",
+            Some(&run_id),
+            Some(&format!(r#"{{"signal":{sig}}}"#)),
+        )
+        .await;
+    Ok(StatusCode::OK)
+}
+
+fn parse_signal(s: &str) -> Option<i32> {
+    let t = s.trim().to_ascii_uppercase();
+    if let Ok(n) = t.parse::<i32>() {
+        if (1..=64).contains(&n) {
+            return Some(n);
+        }
+    }
+    let t = t.strip_prefix("SIG").unwrap_or(&t);
+    Some(match t {
+        "HUP" => 1,
+        "INT" => 2,
+        "QUIT" => 3,
+        "KILL" => 9,
+        "USR1" => 10,
+        "USR2" => 12,
+        "TERM" => 15,
+        "STOP" => 19,
+        "CONT" => 18,
+        _ => return None,
+    })
 }
 
 async fn kill_run(
