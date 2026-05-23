@@ -158,6 +158,48 @@ impl ApiClient {
         Ok(r.json().await?)
     }
 
+    /// Set a global variable (used by Autosys `value(name)` conditions).
+    pub async fn set_global(&self, name: &str, value: &str) -> Result<()> {
+        self.http
+            .post(format!("{}/api/v1/globals", self.base))
+            .json(&serde_json::json!({"name": name, "value": value}))
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(())
+    }
+
+    /// List all globals as `(name, value, updated_at)`.
+    pub async fn list_globals(&self) -> Result<Vec<(String, String, String)>> {
+        let r = self
+            .http
+            .get(format!("{}/api/v1/globals", self.base))
+            .send()
+            .await?
+            .error_for_status()?;
+        let arr: Vec<serde_json::Value> = r.json().await?;
+        Ok(arr
+            .into_iter()
+            .filter_map(|v| {
+                Some((
+                    v["name"].as_str()?.to_string(),
+                    v["value"].as_str()?.to_string(),
+                    v["updated_at"].as_str()?.to_string(),
+                ))
+            })
+            .collect())
+    }
+
+    /// Delete a global by name.
+    pub async fn delete_global(&self, name: &str) -> Result<()> {
+        self.http
+            .delete(format!("{}/api/v1/globals/{}", self.base, name))
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(())
+    }
+
     /// Resolve a "NAME_OR_ID" argument to a job id string.
     /// Tries to parse as ULID first; falls back to name lookup.
     pub async fn resolve(&self, name_or_id: &str) -> Result<String> {

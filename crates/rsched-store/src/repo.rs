@@ -82,6 +82,10 @@ impl Store {
     pub fn resources(&self) -> ResourceRepo<'_> {
         ResourceRepo { pool: &self.pool }
     }
+    /// Global variable repository.
+    pub fn globals(&self) -> GlobalsRepo<'_> {
+        GlobalsRepo { pool: &self.pool }
+    }
 }
 
 fn trigger_kind_str(k: TriggerKind) -> &'static str {
@@ -2020,5 +2024,100 @@ mod auth_tests {
         let entries = store.audit().recent(10).await.unwrap();
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].action, "system.start");
+    }
+}
+
+// ----- Global variables ------------------------------------------------------
+
+/// Global-variable repository — string key→value used by Autosys `value(name)`
+/// in condition expressions, and by `sendevent SET_GLOBAL`.
+pub struct GlobalsRepo<'a> {
+    pool: &'a AnyPool,
+}
+
+impl<'a> GlobalsRepo<'a> {
+    /// Upsert a global.
+    pub async fn set(&self, name: &str, value: &str) -> Result<(), StoreError> {
+        let now = Utc::now().to_rfc3339();
+        sqlx::query(
+            "INSERT INTO globals (name, value, updated_at) VALUES (?, ?, ?) \
+             ON CONFLICT(name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+        )
+        .bind(name)
+        .bind(value)
+        .bind(now)
+        .execute(self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Get a global value by name.
+    pub async fn get(&self, name: &str) -> Result<Option<String>, StoreError> {
+        let row = sqlx::query("SELECT value FROM globals WHERE name = ?")
+            .bind(name)
+            .fetch_optional(self.pool)
+            .await?;
+        Ok(match row {
+            Some(r) => Some(r.try_get("value")?),
+            None => None,
+        })
+    }
+
+    /// Delete a global.
+    pub async fn delete(&self, name: &str) -> Result<(), StoreError> {
+        sqlx::query("DELETE FROM globals WHERE name = ?")
+            .bind(name)
+            .execute(self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// List all globals as `(name, value, updated_at)` tuples.
+    pub async fn list(&self) -> Result<Vec<(String, String, String)>, StoreError> {
+        let rows = sqlx::query("SELECT name, value, updated_at FROM globals ORDER BY name")
+            .fetch_all(self.pool)
+            .await?;
+        rows.iter()
+            .map(|r| {
+                Ok((
+                    r.try_get::<String, _>("name")?,
+                    r.try_get::<String, _>("value")?,
+                    r.try_get::<String, _>("updated_at")?,
+                ))
+            })
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod globals_tests {
+    use super::*;
+
+    async fn fresh_store() -> Store {
+        crate::pool::init_drivers();
+        let pool = crate::open_pool("sqlite::memory:").await.unwrap();
+        let s = Store::with_url(pool, "sqlite::memory:");
+        s.migrate().await.unwrap();
+        s
+    }
+
+    #[tokio::test]
+    async fn upsert_get_list_delete() {
+        let store = fresh_store().await;
+        store.globals().set("env", "prod").await.unwrap();
+        assert_eq!(
+            store.globals().get("env").await.unwrap(),
+            Some("prod".into())
+        );
+        store.globals().set("env", "staging").await.unwrap();
+        assert_eq!(
+            store.globals().get("env").await.unwrap(),
+            Some("staging".into())
+        );
+        store.globals().set("region", "us-east-1").await.unwrap();
+        let all = store.globals().list().await.unwrap();
+        assert_eq!(all.len(), 2);
+        store.globals().delete("env").await.unwrap();
+        assert!(store.globals().get("env").await.unwrap().is_none());
     }
 }

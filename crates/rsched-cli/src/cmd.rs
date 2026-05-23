@@ -84,6 +84,41 @@ pub enum Cmd {
         #[arg(short, long)]
         file: String,
     },
+    /// Autosys-compat `autorep`: -J <name> prints a job + recent runs;
+    /// -A lists all jobs.
+    Autorep {
+        /// `-J <name>` to inspect a single job; `-A` to list all jobs.
+        #[arg(short = 'J', long, conflicts_with = "all")]
+        job: Option<String>,
+        /// List all jobs (`autorep -A`).
+        #[arg(short = 'A', long)]
+        all: bool,
+    },
+    /// Manage Autosys-style global variables (used by `value(name)` conditions).
+    Global {
+        /// `list` / `set` / `delete` subcommand.
+        #[command(subcommand)]
+        cmd: GlobalCmd,
+    },
+}
+
+/// Subcommands for `global`.
+#[derive(Debug, Subcommand)]
+pub enum GlobalCmd {
+    /// List every global as `name=value`.
+    List,
+    /// Set a global value (creates or overwrites).
+    Set {
+        /// Global variable name.
+        name: String,
+        /// Value to store (string).
+        value: String,
+    },
+    /// Delete a global.
+    Delete {
+        /// Global variable name.
+        name: String,
+    },
 }
 
 /// Execute the CLI: returns Ok(()) on success.
@@ -234,13 +269,91 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
                     client.resume(&id).await?;
                     println!("{id}\tOFF_HOLD");
                 }
+                "SET_GLOBAL" => {
+                    return Err(anyhow!(
+                        "use `rusty-sched cli global set NAME VALUE` instead of `sendevent SET_GLOBAL`"
+                    ));
+                }
                 other => {
                     return Err(anyhow!(
-                        "unknown event {other:?}; supported: STARTJOB, KILLJOB, ON_HOLD, OFF_HOLD"
+                        "unknown event {other:?}; supported: STARTJOB, KILLJOB, ON_HOLD, OFF_HOLD, SET_GLOBAL"
                     ));
                 }
             }
         }
+        Cmd::Autorep { job, all } => {
+            if all || job.is_none() {
+                // `autorep -A`: list every job + most recent run summary.
+                let jobs = client.list_jobs().await?;
+                println!(
+                    "{:<28} {:<10} {:<10} {:<26}",
+                    "JOB_NAME", "STATE", "LAST_RUN", "NEXT_FIRE"
+                );
+                for j in jobs {
+                    let runs = client.runs_for(&j.id.to_string()).await.unwrap_or_default();
+                    let last = runs
+                        .first()
+                        .map(|r| format!("{:?}", r.state))
+                        .unwrap_or_else(|| "-".into());
+                    println!(
+                        "{:<28} {:<10} {:<10} {:<26}",
+                        j.name,
+                        if j.paused { "ON_HOLD" } else { "active" },
+                        last,
+                        j.next_fire_at
+                            .map(|t| t.to_rfc3339())
+                            .unwrap_or_else(|| "-".into()),
+                    );
+                }
+            } else if let Some(name) = job {
+                let id = client.resolve(&name).await?;
+                let j = client.get_job(&id).await?;
+                println!("Job: {}", j.name);
+                println!("  id:           {}", j.id);
+                println!(
+                    "  state:        {}",
+                    if j.paused { "ON_HOLD" } else { "active" }
+                );
+                println!("  cmd:          {}", j.cmd);
+                println!(
+                    "  next_fire_at: {}",
+                    j.next_fire_at
+                        .map(|t| t.to_rfc3339())
+                        .unwrap_or_else(|| "-".into())
+                );
+                println!("Recent runs:");
+                let runs = client.runs_for(&id).await?;
+                for r in runs.iter().take(20) {
+                    println!(
+                        "  {}  {:?}  exit={}  started={}",
+                        r.id,
+                        r.state,
+                        r.exit_code
+                            .map(|c| c.to_string())
+                            .unwrap_or_else(|| "-".into()),
+                        r.started_at
+                            .map(|t| t.to_rfc3339())
+                            .unwrap_or_else(|| "-".into()),
+                    );
+                }
+            }
+        }
+        Cmd::Global { cmd } => match cmd {
+            GlobalCmd::List => {
+                let rows = client.list_globals().await?;
+                for (n, v, _) in rows {
+                    println!("{n}={v}");
+                }
+            }
+            GlobalCmd::Set { name, value } => {
+                client.set_global(&name, &value).await?;
+                println!("{name}\tset");
+            }
+            GlobalCmd::Delete { name } => {
+                client.delete_global(&name).await?;
+                println!("{name}\tdeleted");
+            }
+        },
     }
     Ok(())
 }

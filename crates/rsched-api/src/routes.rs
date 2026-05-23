@@ -56,6 +56,12 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/runs/:id/logs", get(get_run_logs))
         .route("/api/v1/runs/:id/logs/ws", get(ws_run_logs))
         .route("/api/v1/stats/jobs/:id", get(job_stats))
+        // Global variables (used by Autosys value() conditions + sendevent SET_GLOBAL).
+        .route("/api/v1/globals", get(list_globals).post(set_global))
+        .route(
+            "/api/v1/globals/:name",
+            get(get_global).delete(delete_global),
+        )
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth::middleware,
@@ -371,6 +377,94 @@ async fn get_run(
         .parse()
         .map_err(|_| ApiError::Validation("bad run id".into()))?;
     Ok(Json(s.store.runs().get(id).await?))
+}
+
+// ----- Globals -------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+struct GlobalRow {
+    name: String,
+    value: String,
+    updated_at: String,
+}
+
+async fn list_globals(State(s): State<AppState>) -> Result<Json<Vec<GlobalRow>>, ApiError> {
+    let rows = s.store.globals().list().await?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|(name, value, updated_at)| GlobalRow {
+                name,
+                value,
+                updated_at,
+            })
+            .collect(),
+    ))
+}
+
+async fn get_global(
+    State(s): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<GlobalRow>, ApiError> {
+    let v = s
+        .store
+        .globals()
+        .get(&name)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(name.clone()))?;
+    Ok(Json(GlobalRow {
+        name,
+        value: v,
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+struct SetGlobalReq {
+    name: String,
+    value: String,
+}
+
+async fn set_global(
+    State(s): State<AppState>,
+    crate::auth::RequireWrite(ctx): crate::auth::RequireWrite,
+    Json(req): Json<SetGlobalReq>,
+) -> Result<StatusCode, ApiError> {
+    if req.name.trim().is_empty() {
+        return Err(ApiError::Validation("global name required".into()));
+    }
+    s.store.globals().set(&req.name, &req.value).await?;
+    let _ = s
+        .store
+        .audit()
+        .record(
+            Some(&ctx.user_id.to_string()),
+            "global.set",
+            "global",
+            Some(&req.name),
+            None,
+        )
+        .await;
+    Ok(StatusCode::OK)
+}
+
+async fn delete_global(
+    State(s): State<AppState>,
+    crate::auth::RequireWrite(ctx): crate::auth::RequireWrite,
+    Path(name): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    s.store.globals().delete(&name).await?;
+    let _ = s
+        .store
+        .audit()
+        .record(
+            Some(&ctx.user_id.to_string()),
+            "global.delete",
+            "global",
+            Some(&name),
+            None,
+        )
+        .await;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn kill_run(
