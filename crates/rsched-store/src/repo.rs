@@ -360,6 +360,29 @@ fn row_to_job(row: &sqlx::any::AnyRow) -> Result<Job, StoreError> {
         .transpose()
         .map_err(|e| StoreError::NotFound(format!("bad ts: {e}")))?;
 
+    let exclude_calendar_id: Option<String> = row.try_get("exclude_calendar_id").ok().flatten();
+    let exclude_calendar_id = exclude_calendar_id
+        .as_deref()
+        .map(|s| s.parse())
+        .transpose()
+        .map_err(|e: ulid::DecodeError| StoreError::NotFound(format!("bad excl cal id: {e}")))?;
+    let must_start_times_json: Option<String> = row.try_get("must_start_times_json").ok().flatten();
+    let must_start_times = match must_start_times_json {
+        Some(s) if !s.is_empty() => serde_json::from_str(&s)?,
+        _ => Vec::new(),
+    };
+    let must_complete_times_json: Option<String> =
+        row.try_get("must_complete_times_json").ok().flatten();
+    let must_complete_times = match must_complete_times_json {
+        Some(s) if !s.is_empty() => serde_json::from_str(&s)?,
+        _ => Vec::new(),
+    };
+    let exit_policy_json: Option<String> = row.try_get("exit_policy_json").ok().flatten();
+    let exit_policy = match exit_policy_json {
+        Some(s) if !s.is_empty() => serde_json::from_str(&s)?,
+        _ => rsched_core::ExitCodePolicy::default(),
+    };
+
     Ok(Job {
         id,
         name,
@@ -375,6 +398,10 @@ fn row_to_job(row: &sqlx::any::AnyRow) -> Result<Job, StoreError> {
         timeout_secs: timeout_secs as u64,
         sla_secs: sla_secs as u64,
         calendar_id,
+        exclude_calendar_id,
+        must_start_times,
+        must_complete_times,
+        exit_policy,
         misfire,
         dependencies: Vec::new(), // loaded separately via dep table when needed
         paused: paused != 0,

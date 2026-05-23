@@ -146,6 +146,69 @@ pub struct AlertConfig {
     pub channels: Vec<AlertChannel>,
 }
 
+/// Outcome derived from an exit code via [`ExitCodePolicy`].
+///
+/// Distinct from [`crate::RunState`] which also covers `Killed`/`Lost`/`Skipped`
+/// — outcomes only model what an exit code says about a finished run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunOutcome {
+    /// Run is considered successful.
+    Success,
+    /// Run is considered a failure.
+    Failure,
+    /// Run finished with the conditional-success code (Autosys `condition_code`).
+    Conditional,
+}
+
+/// Maps a process exit code to a [`RunOutcome`].
+///
+/// Defaults: exit 0 is the only success; everything else is a failure.
+/// Matches Autosys-style `max_exit_success`, `fail_codes`, `condition_code`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ExitCodePolicy {
+    /// Inclusive upper bound for `Success`. Exits in `0..=max_exit_success` succeed
+    /// unless overridden by `fail_codes` or `condition_code`. Default 0.
+    pub max_exit_success: i32,
+    /// Exit codes that always map to `Failure` (overrides `max_exit_success`).
+    pub fail_codes: Vec<i32>,
+    /// Exit code mapped to `Conditional` (overrides everything else).
+    pub condition_code: Option<i32>,
+}
+
+impl ExitCodePolicy {
+    /// Resolve an exit code into an outcome.
+    ///
+    /// Precedence: `condition_code` > `fail_codes` > `<= max_exit_success`.
+    pub fn evaluate(&self, exit: i32) -> RunOutcome {
+        if Some(exit) == self.condition_code {
+            return RunOutcome::Conditional;
+        }
+        if self.fail_codes.contains(&exit) {
+            return RunOutcome::Failure;
+        }
+        if exit >= 0 && exit <= self.max_exit_success {
+            return RunOutcome::Success;
+        }
+        RunOutcome::Failure
+    }
+
+    /// Validate.
+    pub fn validate(&self) -> Result<(), CoreError> {
+        if self.max_exit_success < 0 {
+            return Err(CoreError::InvalidRetry("max_exit_success must be >= 0"));
+        }
+        if let Some(cc) = self.condition_code {
+            if self.fail_codes.contains(&cc) {
+                return Err(CoreError::InvalidRetry(
+                    "condition_code cannot also appear in fail_codes",
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,5 +253,80 @@ mod tests {
             backoff: BackoffKind::None,
         };
         assert!(r.validate().is_err());
+    }
+
+    #[test]
+    fn exit_policy_default_zero_is_success() {
+        let p = ExitCodePolicy::default();
+        assert_eq!(p.evaluate(0), RunOutcome::Success);
+        assert_eq!(p.evaluate(1), RunOutcome::Failure);
+        assert_eq!(p.evaluate(-1), RunOutcome::Failure);
+    }
+
+    #[test]
+    fn exit_policy_max_exit_success_window() {
+        let p = ExitCodePolicy {
+            max_exit_success: 2,
+            ..Default::default()
+        };
+        assert_eq!(p.evaluate(0), RunOutcome::Success);
+        assert_eq!(p.evaluate(2), RunOutcome::Success);
+        assert_eq!(p.evaluate(3), RunOutcome::Failure);
+    }
+
+    #[test]
+    fn exit_policy_fail_codes_override() {
+        let p = ExitCodePolicy {
+            max_exit_success: 5,
+            fail_codes: vec![2, 3],
+            ..Default::default()
+        };
+        assert_eq!(p.evaluate(1), RunOutcome::Success);
+        assert_eq!(p.evaluate(2), RunOutcome::Failure);
+        assert_eq!(p.evaluate(3), RunOutcome::Failure);
+        assert_eq!(p.evaluate(4), RunOutcome::Success);
+    }
+
+    #[test]
+    fn exit_policy_condition_code_wins() {
+        let p = ExitCodePolicy {
+            max_exit_success: 0,
+            fail_codes: vec![],
+            condition_code: Some(7),
+        };
+        assert_eq!(p.evaluate(7), RunOutcome::Conditional);
+        assert_eq!(p.evaluate(0), RunOutcome::Success);
+        assert_eq!(p.evaluate(1), RunOutcome::Failure);
+    }
+
+    #[test]
+    fn exit_policy_condition_and_fail_collision_rejected() {
+        let p = ExitCodePolicy {
+            max_exit_success: 0,
+            fail_codes: vec![7],
+            condition_code: Some(7),
+        };
+        assert!(p.validate().is_err());
+    }
+
+    #[test]
+    fn exit_policy_negative_max_rejected() {
+        let p = ExitCodePolicy {
+            max_exit_success: -1,
+            ..Default::default()
+        };
+        assert!(p.validate().is_err());
+    }
+
+    #[test]
+    fn exit_policy_serde_roundtrip() {
+        let p = ExitCodePolicy {
+            max_exit_success: 4,
+            fail_codes: vec![100, 101],
+            condition_code: Some(2),
+        };
+        let s = serde_json::to_string(&p).unwrap();
+        let back: ExitCodePolicy = serde_json::from_str(&s).unwrap();
+        assert_eq!(p, back);
     }
 }
