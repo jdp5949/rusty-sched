@@ -1,6 +1,25 @@
 # Project notes — post v0.1.0 (2026-05-19)
 
-## v0.5.0 (in progress — branch `feat/v0.5-virtual-resources`, 2026-05-23)
+## v0.6.0 (in progress — branch `feat/v0.6-sendevent-globals-autorep`, 2026-05-23)
+
+Autosys-compat sendevent verbs + global variables + autorep CLI.
+
+### Shipped
+- Migration `0005_globals.sql` for `globals` table (name PK, value, updated_at)
+- `rsched_store::GlobalsRepo` — set / get / delete / list
+- `UpstreamState::global_value(name)` trait method; `StoreUpstreamState` resolves `value(name)` from a snapshot of all globals loaded each tick
+- REST: `GET|POST /api/v1/globals`, `GET|DELETE /api/v1/globals/:name` (write = `RequireWrite` + audit)
+- CLI: `rusty-sched cli global {list,set,delete}` subcommand
+- CLI: `rusty-sched cli autorep -J <name>` (job + 20 recent runs) and `-A` (all jobs summary) — Autosys parity
+- `sendevent SET_GLOBAL` redirects users to `cli global set`
+- Audit log: `global.set`, `global.delete`
+
+### Out of scope
+- Autosys CHANGE_STATUS verb (manual run-state edits)
+- Autosys SEND_SIGNAL verb (OS signals to running processes)
+- `--peers` cluster commands (M10 Raft)
+
+## v0.5.0 (merged 2026-05-23 — PR #35)
 
 Autosys-style virtual resources — named counters with fixed capacity.
 

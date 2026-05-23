@@ -22,18 +22,20 @@ struct RunSnap {
 }
 
 /// Snapshot of job-name → recent run history, used for condition evaluation
-/// (including Autosys look-back windows).
+/// (including Autosys look-back windows) plus a snapshot of global variables.
 pub struct StoreUpstreamState {
     /// Latest (state, exit code, is_running) per job, for fast non-windowed checks.
     latest: HashMap<String, (RunState, Option<i32>, bool)>,
     /// Recent runs (most-recent first) per job, used for windowed counts/checks.
     history: HashMap<String, Vec<RunSnap>>,
+    /// Snapshot of all global variables (name → raw value).
+    globals: HashMap<String, String>,
     /// Snapshot "now" — windowed checks compare `RunSnap::when >= now - window`.
     now: DateTime<Utc>,
 }
 
 impl StoreUpstreamState {
-    /// Build by loading recent runs for every job in the store.
+    /// Build by loading recent runs for every job + every global from the store.
     pub async fn new(store: Store) -> Result<Self, SchedulerError> {
         let now = Utc::now();
         let jobs = store.jobs().list().await?;
@@ -54,9 +56,17 @@ impl StoreUpstreamState {
                 .collect();
             history.insert(job.name.clone(), snaps);
         }
+        let globals = store
+            .globals()
+            .list()
+            .await?
+            .into_iter()
+            .map(|(n, v, _)| (n, v))
+            .collect();
         Ok(Self {
             latest,
             history,
+            globals,
             now,
         })
     }
@@ -118,5 +128,13 @@ impl UpstreamState for StoreUpstreamState {
 
     fn count_failures_within(&self, job_name: &str, within: Duration) -> Option<u32> {
         self.within(job_name, within, |r| r.state == RunState::Failed)
+    }
+
+    fn global_value(&self, name: &str) -> Option<bool> {
+        let v = self.globals.get(name)?;
+        Some(matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "y" | "yes" | "true" | "1"
+        ))
     }
 }

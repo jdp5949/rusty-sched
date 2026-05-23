@@ -49,6 +49,13 @@ pub trait UpstreamState {
             self.last_run_state(job_name)? == RunState::Failed,
         ))
     }
+    /// Resolve `value(name)` to a truthy/falsy boolean. Returning `None` keeps
+    /// expressions involving an unknown name unresolved (Autosys behavior).
+    /// Convention: `"y"`, `"yes"`, `"true"`, `"1"` → true; `"n"`, `"no"`,
+    /// `"false"`, `"0"`, empty → false.
+    fn global_value(&self, _name: &str) -> Option<bool> {
+        None
+    }
 }
 
 /// Evaluate an expression against upstream state.
@@ -90,7 +97,7 @@ pub fn evaluate(expr: &Expr, ctx: &dyn UpstreamState) -> Option<bool> {
             let n = ctx.count_failures_within(j, window)? as i32;
             Some(apply_op(op, n, *expected))
         }
-        Expr::Value(_) => None, // deferred — global var lookup not yet implemented
+        Expr::Value(name) => ctx.global_value(name),
         Expr::And(a, b) => {
             let lhs = evaluate(a, ctx)?;
             let rhs = evaluate(b, ctx)?;
