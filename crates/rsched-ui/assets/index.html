@@ -118,35 +118,60 @@ function stateColor(s) {
 function RunDetail({ runId, onClose }) {
   const [logs, setLogs] = useState([]);
   const [run, setRun] = useState(null);
-  const [seq, setSeq] = useState(0);
-  const active = run && (run.state === 'queued' || run.state === 'running');
+  const [live, setLive] = useState(false);
+  const seqRef = useRef(0);
+  const wsRef = useRef(null);
 
-  async function poll() {
+  async function fetchRunMeta() {
     try {
       const r = await api("GET", `/runs/${runId}`);
       setRun(r);
     } catch (_) {}
-    try {
-      const rows = await api("GET", `/runs/${runId}/logs?from_seq=${seq}&limit=200`);
-      if (rows.length > 0) {
-        setLogs(prev => [...prev, ...rows]);
-        setSeq(rows[rows.length - 1].seq + 1);
-      }
-    } catch (_) {}
   }
 
   useEffect(() => {
-    poll();
-    if (active || run === null) {
-      const id = setInterval(poll, 2000);
-      return () => clearInterval(id);
-    }
-  }, [runId, active]);
+    setLogs([]);
+    seqRef.current = 0;
+    fetchRunMeta();
+
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url = `${proto}//${window.location.host}/api/v1/runs/${runId}/logs/ws?from_seq=0`;
+    const ws = new WebSocket(url);
+    wsRef.current = ws;
+
+    ws.onopen = () => setLive(true);
+    ws.onclose = () => { setLive(false); fetchRunMeta(); };
+    ws.onerror = () => setLive(false);
+    ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === 'log') {
+          seqRef.current = msg.seq + 1;
+          setLogs(prev => [...prev, msg]);
+        } else if (msg.type === 'end') {
+          setLive(false);
+          fetchRunMeta();
+        }
+      } catch (_) {}
+    };
+
+    // Refresh run metadata periodically so state badge updates.
+    const metaTick = setInterval(fetchRunMeta, 4000);
+    return () => {
+      clearInterval(metaTick);
+      try { ws.close(); } catch (_) {}
+    };
+  }, [runId]);
 
   return (
     <div className="mt-3 border-t border-slate-200 pt-3">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-semibold text-slate-600">Run detail: <span className="mono">{runId}</span></span>
+        <span className="text-xs font-semibold text-slate-600">
+          Run detail: <span className="mono">{runId}</span>
+          {live && <span className="ml-2 inline-flex items-center text-emerald-600">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 mr-1 animate-pulse"></span>live
+          </span>}
+        </span>
         <button onClick={onClose} className="text-xs text-slate-400 hover:text-slate-700">hide</button>
       </div>
       {run && (

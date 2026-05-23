@@ -1,16 +1,20 @@
 //! HTTP routes.
 
 use crate::{ApiError, AppState};
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use rsched_core::{
-    AlertConfig, BackoffKind, Job, JobId, MisfirePolicy, RetryPolicy, RunId, Shell, Target, Trigger,
+    AlertConfig, BackoffKind, Job, JobId, MisfirePolicy, RetryPolicy, RunId, RunState, Shell,
+    Target, Trigger,
 };
 use rsched_scheduler::next_fire;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::time::Duration;
 
 /// Build the public router.
 pub fn router(state: AppState) -> Router {
@@ -29,6 +33,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/jobs/:id/runs", get(list_runs_for_job))
         .route("/api/v1/runs/:id", get(get_run).delete(kill_run))
         .route("/api/v1/runs/:id/logs", get(get_run_logs))
+        .route("/api/v1/runs/:id/logs/ws", get(ws_run_logs))
         .route("/api/v1/stats/jobs/:id", get(job_stats))
         .with_state(state)
 }
@@ -297,6 +302,115 @@ struct LogRowResp {
     ts: String,
     stream: String,
     chunk: String,
+}
+
+/// WebSocket live log tail.
+///
+/// Streams `run_logs` rows for a run as JSON frames. The client may pass
+/// `?from_seq=N` to resume from a known sequence. The server polls the DB
+/// every 500ms; sends a final `{"type":"end","state":"…"}` frame when the
+/// run reaches a terminal state and the buffer is drained.
+async fn ws_run_logs(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    Query(q): Query<LogQuery>,
+    ws: WebSocketUpgrade,
+) -> impl IntoResponse {
+    let run_id = id;
+    let from_seq = q.from_seq.unwrap_or(0);
+    ws.on_upgrade(move |socket| stream_run_logs(socket, s, run_id, from_seq))
+}
+
+async fn stream_run_logs(mut socket: WebSocket, s: AppState, run_id: String, mut next_seq: i64) {
+    // Sane upper bound — close the socket if a run sits idle for > 30 minutes.
+    let idle_deadline = std::time::Instant::now() + Duration::from_secs(30 * 60);
+
+    loop {
+        // Drain any pending log rows since `next_seq`.
+        let rows = match s.store.run_logs().fetch(&run_id, Some(next_seq), 500).await {
+            Ok(rows) => rows,
+            Err(e) => {
+                let _ = socket
+                    .send(Message::Text(
+                        serde_json::json!({"type": "error", "message": e.to_string()}).to_string(),
+                    ))
+                    .await;
+                return;
+            }
+        };
+        let drained = !rows.is_empty();
+        for r in rows {
+            next_seq = r.seq + 1;
+            let frame = serde_json::json!({
+                "type": "log",
+                "seq": r.seq,
+                "ts": r.ts,
+                "stream": r.stream,
+                "chunk": String::from_utf8_lossy(&r.chunk),
+            })
+            .to_string();
+            if socket.send(Message::Text(frame)).await.is_err() {
+                return;
+            }
+        }
+
+        // Is the run already terminal? If so and we just drained, signal end and exit.
+        let run_state = match parse_ulid::<RunId>(&run_id) {
+            Some(rid) => match s.store.runs().get(rid).await {
+                Ok(run) => Some(run.state),
+                Err(_) => None,
+            },
+            None => None,
+        };
+        if let Some(state) = run_state {
+            if state.is_terminal() && !drained {
+                let _ = socket
+                    .send(Message::Text(
+                        serde_json::json!({"type":"end","state": run_state_str(state)}).to_string(),
+                    ))
+                    .await;
+                let _ = socket.send(Message::Close(None)).await;
+                return;
+            }
+        }
+
+        if std::time::Instant::now() > idle_deadline {
+            let _ = socket
+                .send(Message::Text(
+                    serde_json::json!({"type":"timeout"}).to_string(),
+                ))
+                .await;
+            let _ = socket.send(Message::Close(None)).await;
+            return;
+        }
+
+        // Listen for client-initiated close while we wait for the next poll.
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_millis(500)) => {}
+            msg = socket.recv() => {
+                match msg {
+                    None | Some(Err(_)) | Some(Ok(Message::Close(_))) => return,
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+fn parse_ulid<T: std::str::FromStr>(s: &str) -> Option<T> {
+    s.parse().ok()
+}
+
+fn run_state_str(state: RunState) -> &'static str {
+    match state {
+        RunState::Queued => "queued",
+        RunState::Running => "running",
+        RunState::Success => "success",
+        RunState::Failed => "failed",
+        RunState::Killed => "killed",
+        RunState::Skipped => "skipped",
+        RunState::Lost => "lost",
+    }
 }
 
 async fn get_run_logs(

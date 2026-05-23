@@ -432,10 +432,7 @@ mod tests {
     #[test]
     fn lookback_failure_short() {
         let e = parse("failure(j, 00.05)").unwrap();
-        assert_eq!(
-            e,
-            Expr::Failure("j".into(), Some(Duration::from_secs(300)))
-        );
+        assert_eq!(e, Expr::Failure("j".into(), Some(Duration::from_secs(300))));
     }
 
     #[test]
@@ -482,12 +479,7 @@ mod tests {
         let e = parse("numsuc(j, 02.00) >= 1").unwrap();
         assert_eq!(
             e,
-            Expr::NumSuc(
-                "j".into(),
-                CmpOp::Ge,
-                1,
-                Some(Duration::from_secs(7200))
-            )
+            Expr::NumSuc("j".into(), CmpOp::Ge, 1, Some(Duration::from_secs(7200)))
         );
     }
 
@@ -496,12 +488,7 @@ mod tests {
         let e = parse("numfail(j, 00.30) < 2").unwrap();
         assert_eq!(
             e,
-            Expr::NumFail(
-                "j".into(),
-                CmpOp::Lt,
-                2,
-                Some(Duration::from_secs(1800))
-            )
+            Expr::NumFail("j".into(), CmpOp::Lt, 2, Some(Duration::from_secs(1800)))
         );
     }
 
@@ -532,10 +519,7 @@ mod tests {
     #[test]
     fn not_expr() {
         let e = parse("not success(a)").unwrap();
-        assert_eq!(
-            e,
-            Expr::Not(Box::new(Expr::Success("a".into(), None)))
-        );
+        assert_eq!(e, Expr::Not(Box::new(Expr::Success("a".into(), None))));
     }
 
     #[test]

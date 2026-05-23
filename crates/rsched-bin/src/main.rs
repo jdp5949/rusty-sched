@@ -184,10 +184,15 @@ async fn run_server(
                     Ok(Ok(o)) => {
                         run.state = if o.timed_out {
                             RunState::Failed
-                        } else if o.exit_code == Some(0) {
-                            RunState::Success
                         } else {
-                            RunState::Failed
+                            match o.exit_code {
+                                Some(code) => match job_for_retry.exit_policy.evaluate(code) {
+                                    rsched_core::RunOutcome::Success
+                                    | rsched_core::RunOutcome::Conditional => RunState::Success,
+                                    rsched_core::RunOutcome::Failure => RunState::Failed,
+                                },
+                                None => RunState::Failed,
+                            }
                         };
                         run.exit_code = o.exit_code;
                         run.finished_at = Some(o.finished_at);

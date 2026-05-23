@@ -294,10 +294,7 @@ fn autosys_parity_translate_to_job() {
             assert_eq!(out.job.must_start_times.len(), 1);
             assert_eq!(out.job.must_complete_times.len(), 2);
             // exclude_calendar resolution is deferred to apply step.
-            assert!(out
-                .warnings
-                .iter()
-                .any(|w| w.contains("exclude_calendar")));
+            assert!(out.warnings.iter().any(|w| w.contains("exclude_calendar")));
         }
         _ => panic!(),
     }

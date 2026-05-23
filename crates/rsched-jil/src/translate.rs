@@ -58,9 +58,13 @@ impl JobSpec {
         }
 
         let exit_policy = build_exit_policy(&self, &mut warnings);
-        let must_start_times = parse_times_csv(&self.must_start_times, &mut warnings, "must_start_times");
-        let must_complete_times =
-            parse_times_csv(&self.must_complete_times, &mut warnings, "must_complete_times");
+        let must_start_times =
+            parse_times_csv(&self.must_start_times, &mut warnings, "must_start_times");
+        let must_complete_times = parse_times_csv(
+            &self.must_complete_times,
+            &mut warnings,
+            "must_complete_times",
+        );
 
         if let Some(name) = &self.exclude_calendar {
             warnings.push(format!(
@@ -126,11 +130,7 @@ fn build_exit_policy(spec: &JobSpec, warnings: &mut Vec<String>) -> ExitCodePoli
     p
 }
 
-fn parse_times_csv(
-    raw: &Option<String>,
-    warnings: &mut Vec<String>,
-    attr: &str,
-) -> Vec<NaiveTime> {
+fn parse_times_csv(raw: &Option<String>, warnings: &mut Vec<String>, attr: &str) -> Vec<NaiveTime> {
     let Some(s) = raw else {
         return Vec::new();
     };

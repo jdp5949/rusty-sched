@@ -39,11 +39,15 @@ pub trait UpstreamState {
     }
     /// Count of successful runs within window.
     fn count_successes_within(&self, job_name: &str, _within: Duration) -> Option<u32> {
-        Some(u32::from(self.last_run_state(job_name)? == RunState::Success))
+        Some(u32::from(
+            self.last_run_state(job_name)? == RunState::Success,
+        ))
     }
     /// Count of failed runs within window.
     fn count_failures_within(&self, job_name: &str, _within: Duration) -> Option<u32> {
-        Some(u32::from(self.last_run_state(job_name)? == RunState::Failed))
+        Some(u32::from(
+            self.last_run_state(job_name)? == RunState::Failed,
+        ))
     }
 }
 
