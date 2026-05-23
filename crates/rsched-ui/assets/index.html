@@ -42,6 +42,7 @@ const { useState, useEffect, useRef } = React;
 function api(method, path, body) {
   return fetch(API + path, {
     method,
+    credentials: "same-origin",
     headers: body ? { "content-type": "application/json" } : {},
     body: body ? JSON.stringify(body) : null,
   }).then(async r => {
@@ -391,23 +392,129 @@ function JobEditModal({ job, onClose, onSaved }) {
   );
 }
 
+function Login({ onLoggedIn }) {
+  const [username, setUsername] = useState("admin");
+  const [password, setPassword] = useState("");
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    setErr(null);
+    setBusy(true);
+    try {
+      const resp = await fetch(API + "/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ username, password }),
+      });
+      if (!resp.ok) {
+        setErr("invalid credentials");
+        setBusy(false);
+        return;
+      }
+      const me = await resp.json();
+      onLoggedIn(me);
+    } catch (e) {
+      setErr(e.message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-100">
+      <form onSubmit={submit} className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm w-full max-w-sm">
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-2xl">⚙️</span>
+          <h1 className="text-xl font-bold">rusty-sched</h1>
+        </div>
+        <label className="block text-xs text-slate-600 mb-1">Username</label>
+        <input className="w-full border border-slate-300 rounded px-3 py-2 text-sm mb-3" value={username} onChange={e=>setUsername(e.target.value)} required />
+        <label className="block text-xs text-slate-600 mb-1">Password</label>
+        <input type="password" className="w-full border border-slate-300 rounded px-3 py-2 text-sm mb-4" value={password} onChange={e=>setPassword(e.target.value)} required />
+        <button disabled={busy} className="w-full bg-orange-600 text-white text-sm px-4 py-2 rounded hover:bg-orange-700 disabled:opacity-50">
+          {busy ? "signing in…" : "Sign in"}
+        </button>
+        {err && <div className="mt-3 text-red-600 text-sm">{err}</div>}
+        <p className="mt-4 text-xs text-slate-500">
+          First run? Default user is <span className="mono">admin</span>. Password from
+          <span className="mono"> RSCHED_ADMIN_PASSWORD</span> env var or auto-generated (check server logs).
+        </p>
+      </form>
+    </div>
+  );
+}
+
+function HeaderWithUser({ me, onLogout }) {
+  return (
+    <header className="bg-gradient-to-r from-orange-500 to-red-600 text-white px-6 py-4 shadow">
+      <div className="max-w-6xl mx-auto flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-2xl">⚙️</span>
+          <h1 className="text-xl font-bold">rusty-sched</h1>
+          <span className="text-orange-200 text-sm">job scheduler</span>
+        </div>
+        <div className="flex items-center gap-4 text-sm">
+          <span>{me.username} <span className="text-orange-200">({me.role})</span></span>
+          <a href="https://github.com/jdp5949/rusty-sched" className="hover:underline">★ GitHub</a>
+          <button onClick={onLogout} className="text-xs text-orange-100 hover:text-white underline">logout</button>
+        </div>
+      </div>
+    </header>
+  );
+}
+
 function App() {
+  const [me, setMe] = useState(undefined);   // undefined = checking, null = logged out, obj = logged in
   const [jobs, setJobs] = useState(null);
   const [err, setErr] = useState(null);
+
+  async function checkAuth() {
+    try {
+      const resp = await fetch(API + "/auth/me", { credentials: "same-origin" });
+      if (resp.status === 401) { setMe(null); return; }
+      if (!resp.ok) throw new Error("auth check failed");
+      setMe(await resp.json());
+    } catch (e) {
+      setMe(null);
+    }
+  }
+
+  async function logout() {
+    await fetch(API + "/auth/logout", { method: "POST", credentials: "same-origin" });
+    setMe(null);
+    setJobs(null);
+  }
 
   async function load() {
     try {
       setJobs(await api("GET", "/jobs"));
       setErr(null);
     } catch (e) {
+      if (e.message.startsWith("401")) { setMe(null); return; }
       setErr(e.message);
     }
   }
-  useEffect(() => { load(); const id = setInterval(load, 5000); return () => clearInterval(id); }, []);
+
+  useEffect(() => { checkAuth(); }, []);
+  useEffect(() => {
+    if (!me) return;
+    load();
+    const id = setInterval(load, 5000);
+    return () => clearInterval(id);
+  }, [me]);
+
+  if (me === undefined) {
+    return <div className="min-h-screen flex items-center justify-center text-slate-500">loading…</div>;
+  }
+  if (me === null) {
+    return <Login onLoggedIn={(u) => setMe(u)} />;
+  }
 
   return (
     <>
-      <Header />
+      <HeaderWithUser me={me} onLogout={logout} />
       <div className="max-w-6xl mx-auto px-6 py-6">
         <NewJobForm onCreated={load} />
         <div className="flex items-center justify-between mb-3">
