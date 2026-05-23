@@ -11,6 +11,7 @@ mod error;
 mod ids;
 mod job;
 mod policy;
+mod resource;
 mod run;
 mod target;
 mod trigger;
@@ -18,13 +19,14 @@ mod trigger;
 pub use auth::{ApiKey, Role, User};
 pub use calendar::{Calendar, CalendarRule};
 pub use error::CoreError;
-pub use ids::{AgentId, ApiKeyId, BoxId, CalendarId, JobId, RunId, UserId};
+pub use ids::{AgentId, ApiKeyId, BoxId, CalendarId, JobId, ResourceId, RunId, UserId};
 pub use job::{DepCondition, DepEdge, Job, JobBuilder};
 pub use policy::{
     AlertChannel, AlertConfig, AlertEvent, BackoffKind, ExitCodePolicy, MisfirePolicy, RetryPolicy,
     RunOutcome, Shell,
 };
 pub use r#box::{Box as JobBox, BoxState};
+pub use resource::{Resource, ResourceClaim};
 pub use run::{Run, RunState};
 pub use target::{Target, TargetKind};
 pub use trigger::{Trigger, TriggerKind};

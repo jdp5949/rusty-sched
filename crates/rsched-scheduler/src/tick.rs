@@ -90,13 +90,28 @@ pub async fn tick_once(
             continue;
         }
         let run = Run::new(job.id, 1);
+        // Try to acquire virtual-resource claims before persisting the run.
+        if !job.resource_claims.is_empty() {
+            let ok = store
+                .resources()
+                .try_acquire(run.id, &job.resource_claims)
+                .await?;
+            if !ok {
+                debug!(job = %job.name, "skipped — resource claims unsatisfiable");
+                // Leave next_fire alone so we retry the same fire next tick.
+                continue;
+            }
+        }
         store.runs().insert(&run).await?;
+        let run_id_for_rollback = run.id;
         let intent = DispatchIntent {
             job: job.clone(),
             run,
         };
         if dispatcher.try_send(intent).is_err() {
             warn!(job = %job.name, "dispatch queue full, leaving run queued");
+            // Roll back the acquired resource holds so they don't leak.
+            let _ = store.resources().release(run_id_for_rollback).await;
             continue;
         }
         emitted += 1;

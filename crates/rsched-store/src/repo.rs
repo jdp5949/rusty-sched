@@ -78,6 +78,10 @@ impl Store {
     pub fn audit(&self) -> AuditRepo<'_> {
         AuditRepo { pool: &self.pool }
     }
+    /// Virtual resource repository.
+    pub fn resources(&self) -> ResourceRepo<'_> {
+        ResourceRepo { pool: &self.pool }
+    }
 }
 
 fn trigger_kind_str(k: TriggerKind) -> &'static str {
@@ -150,6 +154,7 @@ impl<'a> JobRepo<'a> {
         let must_start_times_json = serde_json::to_string(&job.must_start_times)?;
         let must_complete_times_json = serde_json::to_string(&job.must_complete_times)?;
         let exit_policy_json = serde_json::to_string(&job.exit_policy)?;
+        let resource_claims_json = serde_json::to_string(&job.resource_claims)?;
         let paused = job.paused as i64;
         let created = job.created_at.to_rfc3339();
         let updated = job.updated_at.to_rfc3339();
@@ -160,8 +165,9 @@ impl<'a> JobRepo<'a> {
             (id, name, box_id, trigger_kind, trigger_data_json, cmd, args_json, env_json,
              cwd, shell, target_json, retry_json, timeout_secs, sla_secs, calendar_id,
              misfire_policy, paused, alert_config_json, created_at, updated_at, next_fire_at,
-             exclude_calendar_id, must_start_times_json, must_complete_times_json, exit_policy_json)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"#,
+             exclude_calendar_id, must_start_times_json, must_complete_times_json,
+             exit_policy_json, resource_claims_json)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"#,
         )
         .bind(id)
         .bind(&job.name)
@@ -188,6 +194,7 @@ impl<'a> JobRepo<'a> {
         .bind(must_start_times_json)
         .bind(must_complete_times_json)
         .bind(exit_policy_json)
+        .bind(resource_claims_json)
         .execute(self.pool)
         .await?;
         Ok(())
@@ -293,6 +300,7 @@ impl<'a> JobRepo<'a> {
         let must_start_times_json = serde_json::to_string(&job.must_start_times)?;
         let must_complete_times_json = serde_json::to_string(&job.must_complete_times)?;
         let exit_policy_json = serde_json::to_string(&job.exit_policy)?;
+        let resource_claims_json = serde_json::to_string(&job.resource_claims)?;
         let timeout = job.timeout_secs as i64;
         let sla = job.sla_secs as i64;
         let paused = job.paused as i64;
@@ -307,7 +315,8 @@ impl<'a> JobRepo<'a> {
                 calendar_id = ?, misfire_policy = ?, paused = ?,
                 alert_config_json = ?, updated_at = ?, next_fire_at = ?,
                 exclude_calendar_id = ?, must_start_times_json = ?,
-                must_complete_times_json = ?, exit_policy_json = ?
+                must_complete_times_json = ?, exit_policy_json = ?,
+                resource_claims_json = ?
               WHERE id = ?"#,
         )
         .bind(&job.name)
@@ -333,6 +342,7 @@ impl<'a> JobRepo<'a> {
         .bind(must_start_times_json)
         .bind(must_complete_times_json)
         .bind(exit_policy_json)
+        .bind(resource_claims_json)
         .bind(job.id.to_string())
         .execute(self.pool)
         .await?;
@@ -418,6 +428,11 @@ fn row_to_job(row: &sqlx::any::AnyRow) -> Result<Job, StoreError> {
         Some(s) if !s.is_empty() => serde_json::from_str(&s)?,
         _ => rsched_core::ExitCodePolicy::default(),
     };
+    let resource_claims_json: Option<String> = row.try_get("resource_claims_json").ok().flatten();
+    let resource_claims = match resource_claims_json {
+        Some(s) if !s.is_empty() => serde_json::from_str(&s)?,
+        _ => Vec::new(),
+    };
 
     Ok(Job {
         id,
@@ -438,6 +453,7 @@ fn row_to_job(row: &sqlx::any::AnyRow) -> Result<Job, StoreError> {
         must_start_times,
         must_complete_times,
         exit_policy,
+        resource_claims,
         misfire,
         dependencies: Vec::new(), // loaded separately via dep table when needed
         paused: paused != 0,
@@ -1643,6 +1659,154 @@ impl<'a> AuditRepo<'a> {
     }
 }
 
+// ----- Virtual resources -----------------------------------------------------
+
+use rsched_core::{Resource, ResourceClaim, ResourceId};
+
+/// Virtual resource repository — counters with fixed capacity, claimed by runs.
+pub struct ResourceRepo<'a> {
+    pool: &'a AnyPool,
+}
+
+impl<'a> ResourceRepo<'a> {
+    /// Insert a new resource.
+    pub async fn insert(&self, r: &Resource) -> Result<(), StoreError> {
+        r.validate()?;
+        sqlx::query(
+            "INSERT INTO resources (id, name, capacity, description, created_at) \
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(r.id.to_string())
+        .bind(&r.name)
+        .bind(r.capacity as i64)
+        .bind(&r.description)
+        .bind(r.created_at.to_rfc3339())
+        .execute(self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// List all resources.
+    pub async fn list(&self) -> Result<Vec<Resource>, StoreError> {
+        let rows = sqlx::query(
+            "SELECT id, name, capacity, description, created_at FROM resources ORDER BY name",
+        )
+        .fetch_all(self.pool)
+        .await?;
+        rows.iter().map(Self::row_to_resource).collect()
+    }
+
+    /// Get a resource by name.
+    pub async fn get_by_name(&self, name: &str) -> Result<Option<Resource>, StoreError> {
+        let row = sqlx::query(
+            "SELECT id, name, capacity, description, created_at FROM resources WHERE name = ?",
+        )
+        .bind(name)
+        .fetch_optional(self.pool)
+        .await?;
+        row.map(|r| Self::row_to_resource(&r)).transpose()
+    }
+
+    /// Delete by id.
+    pub async fn delete(&self, id: ResourceId) -> Result<(), StoreError> {
+        sqlx::query("DELETE FROM resources WHERE id = ?")
+            .bind(id.to_string())
+            .execute(self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Currently available units for one resource.
+    pub async fn available_units(&self, id: ResourceId) -> Result<u32, StoreError> {
+        let row = sqlx::query(
+            "SELECT (SELECT capacity FROM resources WHERE id = ?1) - \
+                    COALESCE((SELECT SUM(units) FROM resource_holds WHERE resource_id = ?1), 0) \
+             AS available",
+        )
+        .bind(id.to_string())
+        .fetch_one(self.pool)
+        .await?;
+        let n: i64 = row.try_get("available")?;
+        Ok(n.max(0) as u32)
+    }
+
+    /// Atomic acquire. Resolves each claim by name → id, checks capacity,
+    /// inserts holds. Returns `Ok(false)` if any claim doesn't fit or the
+    /// resource name is unknown; partial holds are rolled back.
+    pub async fn try_acquire(
+        &self,
+        run_id: rsched_core::RunId,
+        claims: &[ResourceClaim],
+    ) -> Result<bool, StoreError> {
+        if claims.is_empty() {
+            return Ok(true);
+        }
+        let mut tx = self.pool.begin().await?;
+        for claim in claims {
+            let row = sqlx::query("SELECT id, capacity FROM resources WHERE name = ?")
+                .bind(&claim.resource_name)
+                .fetch_optional(&mut *tx)
+                .await?;
+            let Some(row) = row else {
+                tx.rollback().await?;
+                return Ok(false);
+            };
+            let res_id: String = row.try_get("id")?;
+            let capacity: i64 = row.try_get("capacity")?;
+            let used: i64 = sqlx::query(
+                "SELECT COALESCE(SUM(units), 0) AS used FROM resource_holds WHERE resource_id = ?",
+            )
+            .bind(&res_id)
+            .fetch_one(&mut *tx)
+            .await?
+            .try_get("used")?;
+            if used + claim.units as i64 > capacity {
+                tx.rollback().await?;
+                return Ok(false);
+            }
+            sqlx::query(
+                "INSERT INTO resource_holds (run_id, resource_id, units, acquired_at) \
+                 VALUES (?, ?, ?, ?)",
+            )
+            .bind(run_id.to_string())
+            .bind(res_id)
+            .bind(claim.units as i64)
+            .bind(Utc::now().to_rfc3339())
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(true)
+    }
+
+    /// Release every hold belonging to a run.
+    pub async fn release(&self, run_id: rsched_core::RunId) -> Result<(), StoreError> {
+        sqlx::query("DELETE FROM resource_holds WHERE run_id = ?")
+            .bind(run_id.to_string())
+            .execute(self.pool)
+            .await?;
+        Ok(())
+    }
+
+    fn row_to_resource(row: &AnyRow) -> Result<Resource, StoreError> {
+        let id_str: String = row.try_get("id")?;
+        let id: ResourceId = id_str.parse().map_err(|e: ulid::DecodeError| {
+            StoreError::NotFound(format!("bad resource id: {e}"))
+        })?;
+        let name: String = row.try_get("name")?;
+        let capacity: i64 = row.try_get("capacity")?;
+        let description: Option<String> = row.try_get("description")?;
+        let created_at_str: String = row.try_get("created_at")?;
+        Ok(Resource {
+            id,
+            name,
+            capacity: capacity as u32,
+            description,
+            created_at: parse_ts(&created_at_str)?,
+        })
+    }
+}
+
 #[cfg(test)]
 mod auth_tests {
     use super::*;
@@ -1764,6 +1928,80 @@ mod auth_tests {
             .await
             .unwrap()
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn resource_acquire_release_lifecycle() {
+        use rsched_core::{Resource, ResourceClaim, ResourceId, RunId};
+        let store = fresh_store().await;
+        let rid = ResourceId::new();
+        store
+            .resources()
+            .insert(&Resource {
+                id: rid,
+                name: "db".into(),
+                capacity: 5,
+                description: None,
+                created_at: Utc::now(),
+            })
+            .await
+            .unwrap();
+        // Available = capacity initially.
+        assert_eq!(store.resources().available_units(rid).await.unwrap(), 5);
+
+        // Acquire 3 for run1.
+        let run1 = RunId::new();
+        let claims = vec![ResourceClaim {
+            resource_name: "db".into(),
+            units: 3,
+        }];
+        assert!(store.resources().try_acquire(run1, &claims).await.unwrap());
+        assert_eq!(store.resources().available_units(rid).await.unwrap(), 2);
+
+        // Acquire 3 more for run2 → fails (only 2 left).
+        let run2 = RunId::new();
+        let big_claims = vec![ResourceClaim {
+            resource_name: "db".into(),
+            units: 3,
+        }];
+        assert!(!store
+            .resources()
+            .try_acquire(run2, &big_claims)
+            .await
+            .unwrap());
+        assert_eq!(store.resources().available_units(rid).await.unwrap(), 2);
+
+        // Smaller acquire for run2 succeeds.
+        let small_claims = vec![ResourceClaim {
+            resource_name: "db".into(),
+            units: 2,
+        }];
+        assert!(store
+            .resources()
+            .try_acquire(run2, &small_claims)
+            .await
+            .unwrap());
+        assert_eq!(store.resources().available_units(rid).await.unwrap(), 0);
+
+        // Release run1 → 3 back.
+        store.resources().release(run1).await.unwrap();
+        assert_eq!(store.resources().available_units(rid).await.unwrap(), 3);
+    }
+
+    #[tokio::test]
+    async fn resource_acquire_unknown_name_fails() {
+        use rsched_core::{ResourceClaim, RunId};
+        let store = fresh_store().await;
+        let claims = vec![ResourceClaim {
+            resource_name: "ghost".into(),
+            units: 1,
+        }];
+        let ok = store
+            .resources()
+            .try_acquire(RunId::new(), &claims)
+            .await
+            .unwrap();
+        assert!(!ok);
     }
 
     #[tokio::test]

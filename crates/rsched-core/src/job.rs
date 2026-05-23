@@ -1,8 +1,8 @@
 //! Job — the unit a user schedules.
 
 use crate::{
-    AlertConfig, BoxId, CalendarId, CoreError, ExitCodePolicy, JobId, MisfirePolicy, RetryPolicy,
-    Shell, Target, Trigger,
+    AlertConfig, BoxId, CalendarId, CoreError, ExitCodePolicy, JobId, MisfirePolicy, ResourceClaim,
+    RetryPolicy, Shell, Target, Trigger,
 };
 use chrono::{DateTime, NaiveTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -73,6 +73,11 @@ pub struct Job {
     /// Exit-code policy (Autosys `max_exit_success`, `fail_codes`, `condition_code`).
     #[serde(default)]
     pub exit_policy: ExitCodePolicy,
+    /// Virtual resource claims (Autosys `resources` attribute). Scheduler
+    /// acquires every claim before dispatch; if any exceeds remaining
+    /// capacity the job is left queued for the next tick.
+    #[serde(default)]
+    pub resource_claims: Vec<ResourceClaim>,
     /// Misfire policy.
     pub misfire: MisfirePolicy,
     /// Upstream deps (besides Dep trigger, used for ordering inside boxes).
@@ -102,6 +107,9 @@ impl Job {
         self.trigger.validate()?;
         self.retry.validate()?;
         self.exit_policy.validate()?;
+        for c in &self.resource_claims {
+            c.validate()?;
+        }
         if self.timeout_secs != 0 && self.sla_secs != 0 && self.sla_secs > self.timeout_secs {
             return Err(CoreError::InvalidRetry("sla_secs > timeout_secs"));
         }
@@ -164,6 +172,7 @@ impl JobBuilder {
                 must_start_times: Vec::new(),
                 must_complete_times: Vec::new(),
                 exit_policy: ExitCodePolicy::default(),
+                resource_claims: Vec::new(),
                 misfire: MisfirePolicy::default(),
                 dependencies: Vec::new(),
                 paused: false,

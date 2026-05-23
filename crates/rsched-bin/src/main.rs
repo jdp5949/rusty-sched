@@ -212,6 +212,8 @@ async fn run_server(
                 }
                 registry_ref.remove(&run_id.to_string());
                 let _ = store.runs().update(&run).await;
+                // Release any virtual-resource holds this run acquired.
+                let _ = store.resources().release(run_id).await;
 
                 // Retry: schedule next attempt if policy says so.
                 if should_retry(&job_for_retry, &run) {
