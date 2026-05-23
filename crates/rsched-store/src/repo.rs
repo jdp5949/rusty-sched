@@ -4,6 +4,7 @@
 use crate::StoreError;
 use chrono::{DateTime, Utc};
 use rsched_core::{AgentId, Calendar, CalendarId, Job, JobId, Run, RunId, RunState, TriggerKind};
+use sqlx::any::AnyRow;
 use sqlx::{AnyPool, Row};
 
 /// Wraps a pool + provides repo accessors.
@@ -712,6 +713,28 @@ impl<'a> CalendarRepo<'a> {
             .fetch_optional(self.pool)
             .await?
             .ok_or_else(|| StoreError::NotFound(id.to_string()))?;
+        Self::row_to_calendar(&row)
+    }
+
+    /// Fetch by name.
+    pub async fn get_by_name(&self, name: &str) -> Result<Calendar, StoreError> {
+        let row = sqlx::query("SELECT id, name, definition_json FROM calendars WHERE name = ?")
+            .bind(name)
+            .fetch_optional(self.pool)
+            .await?
+            .ok_or_else(|| StoreError::NotFound(name.into()))?;
+        Self::row_to_calendar(&row)
+    }
+
+    /// List all calendars.
+    pub async fn list(&self) -> Result<Vec<Calendar>, StoreError> {
+        let rows = sqlx::query("SELECT id, name, definition_json FROM calendars ORDER BY name")
+            .fetch_all(self.pool)
+            .await?;
+        rows.iter().map(Self::row_to_calendar).collect()
+    }
+
+    fn row_to_calendar(row: &AnyRow) -> Result<Calendar, StoreError> {
         let id: String = row.try_get("id")?;
         let id: CalendarId = id
             .parse()
