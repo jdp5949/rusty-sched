@@ -285,9 +285,20 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
                     client.change_run_state(&run_id, state).await?;
                     println!("{run_id}\tCHANGE_STATUS={state}");
                 }
-                ev if ev == "SEND_SIGNAL" || ev.starts_with("SEND_SIGNAL=") => {
+                ev if ev.starts_with("SEND_SIGNAL=") => {
+                    let sig = &ev["SEND_SIGNAL=".len()..];
+                    let runs = client.runs_for(&id).await?;
+                    let r = runs
+                        .iter()
+                        .find(|r| r.state == rsched_core::RunState::Running)
+                        .ok_or_else(|| anyhow!("no running run for job {}", target))?;
+                    let run_id = r.id.to_string();
+                    client.signal_run(&run_id, sig).await?;
+                    println!("{run_id}\tSEND_SIGNAL={sig}");
+                }
+                "SEND_SIGNAL" => {
                     return Err(anyhow!(
-                        "SEND_SIGNAL is not yet supported; only KILLJOB (SIGKILL) is available"
+                        "SEND_SIGNAL requires a signal: use SEND_SIGNAL=TERM, SEND_SIGNAL=HUP, etc."
                     ));
                 }
                 other => {
