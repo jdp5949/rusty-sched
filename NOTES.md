@@ -1,6 +1,23 @@
 # Project notes — post v0.1.0 (2026-05-19)
 
-## v0.5.1 (in progress — branch `feat/v0.5.1-resources-rest-ui-jil`, 2026-05-23)
+## v0.6.1 (in progress — branch `feat/v0.6.1-change-status`, 2026-05-23)
+
+CHANGE_STATUS verb. Manual run-state transitions for admin/operator.
+
+### Shipped
+- `POST /api/v1/runs/:id/state {state, exit_code?}` (RequireWrite + audit)
+  Allowed states: `success` / `failed` / `killed` / `lost` / `skipped`.
+  Sets `finished_at` if not already terminal. Releases virtual-resource
+  holds when transitioning to a terminal state.
+- CLI: `rusty-sched cli sendevent <name> CHANGE_STATUS=SUCCESS` applies
+  to the most recent run.
+- Audit: `run.change_status` with the new state in the payload.
+
+### Out of scope
+- `SEND_SIGNAL` verb (returns a "not yet supported" error) — needs an
+  executor extension to accept arbitrary unix signals.
+
+## v0.5.1 (merged 2026-05-23 — PR #37)
 
 Finish virtual-resources feature loop: REST endpoints, UI page, JIL parser.
 

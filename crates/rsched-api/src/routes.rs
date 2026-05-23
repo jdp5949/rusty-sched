@@ -53,6 +53,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/jobs/:id/trigger", post(trigger_job))
         .route("/api/v1/jobs/:id/runs", get(list_runs_for_job))
         .route("/api/v1/runs/:id", get(get_run).delete(kill_run))
+        .route("/api/v1/runs/:id/state", post(change_run_state))
         .route("/api/v1/runs/:id/logs", get(get_run_logs))
         .route("/api/v1/runs/:id/logs/ws", get(ws_run_logs))
         .route("/api/v1/stats/jobs/:id", get(job_stats))
@@ -592,6 +593,77 @@ async fn delete_resource(
         )
         .await;
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Debug, Deserialize)]
+struct ChangeStateReq {
+    state: String,
+    #[serde(default)]
+    exit_code: Option<i32>,
+}
+
+/// Autosys-style `sendevent CHANGE_STATUS`: manually mark a run as
+/// Success/Failed/Killed/Lost/Skipped. Cannot transition out of a terminal
+/// state if the run is already terminal — admin/operator must confirm via
+/// `force=true` (not implemented yet; this endpoint always overwrites).
+async fn change_run_state(
+    State(s): State<AppState>,
+    crate::auth::RequireWrite(ctx): crate::auth::RequireWrite,
+    Path(id): Path<String>,
+    Json(req): Json<ChangeStateReq>,
+) -> Result<StatusCode, ApiError> {
+    let run_id: RunId = id
+        .parse()
+        .map_err(|_| ApiError::Validation("bad run id".into()))?;
+    let new_state = match req.state.to_ascii_lowercase().as_str() {
+        "success" | "succeeded" => RunState::Success,
+        "failed" | "failure" => RunState::Failed,
+        "killed" => RunState::Killed,
+        "lost" => RunState::Lost,
+        "skipped" => RunState::Skipped,
+        other => {
+            return Err(ApiError::Validation(format!(
+                "invalid state {other:?}; allowed: success/failed/killed/lost/skipped"
+            )))
+        }
+    };
+    let mut run = s.store.runs().get(run_id).await?;
+    run.state = new_state;
+    if let Some(c) = req.exit_code {
+        run.exit_code = Some(c);
+    }
+    if run.finished_at.is_none() && new_state.is_terminal() {
+        run.finished_at = Some(chrono::Utc::now());
+    }
+    s.store.runs().update(&run).await?;
+    // Release any virtual-resource holds since the run is no longer active.
+    if new_state.is_terminal() {
+        let _ = s.store.resources().release(run_id).await;
+    }
+    let _ = s
+        .store
+        .audit()
+        .record(
+            Some(&ctx.user_id.to_string()),
+            "run.change_status",
+            "run",
+            Some(&run_id.to_string()),
+            Some(&format!(r#"{{"state":"{}"}}"#, new_state_str(new_state))),
+        )
+        .await;
+    Ok(StatusCode::OK)
+}
+
+fn new_state_str(s: RunState) -> &'static str {
+    match s {
+        RunState::Queued => "queued",
+        RunState::Running => "running",
+        RunState::Success => "success",
+        RunState::Failed => "failed",
+        RunState::Killed => "killed",
+        RunState::Skipped => "skipped",
+        RunState::Lost => "lost",
+    }
 }
 
 async fn kill_run(

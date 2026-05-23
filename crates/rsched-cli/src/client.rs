@@ -190,6 +190,17 @@ impl ApiClient {
             .collect())
     }
 
+    /// Change a run's state (Autosys CHANGE_STATUS verb).
+    pub async fn change_run_state(&self, run_id: &str, state: &str) -> Result<()> {
+        self.http
+            .post(format!("{}/api/v1/runs/{}/state", self.base, run_id))
+            .json(&serde_json::json!({"state": state}))
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(())
+    }
+
     /// Delete a global by name.
     pub async fn delete_global(&self, name: &str) -> Result<()> {
         self.http

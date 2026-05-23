@@ -274,9 +274,25 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
                         "use `rusty-sched cli global set NAME VALUE` instead of `sendevent SET_GLOBAL`"
                     ));
                 }
+                ev if ev.starts_with("CHANGE_STATUS=") => {
+                    let state = &ev["CHANGE_STATUS=".len()..];
+                    // Apply to the most recent run.
+                    let runs = client.runs_for(&id).await?;
+                    let r = runs
+                        .first()
+                        .ok_or_else(|| anyhow!("no runs found for job {}", target))?;
+                    let run_id = r.id.to_string();
+                    client.change_run_state(&run_id, state).await?;
+                    println!("{run_id}\tCHANGE_STATUS={state}");
+                }
+                ev if ev == "SEND_SIGNAL" || ev.starts_with("SEND_SIGNAL=") => {
+                    return Err(anyhow!(
+                        "SEND_SIGNAL is not yet supported; only KILLJOB (SIGKILL) is available"
+                    ));
+                }
                 other => {
                     return Err(anyhow!(
-                        "unknown event {other:?}; supported: STARTJOB, KILLJOB, ON_HOLD, OFF_HOLD, SET_GLOBAL"
+                        "unknown event {other:?}; supported: STARTJOB, KILLJOB, ON_HOLD, OFF_HOLD, CHANGE_STATUS=<state>, SET_GLOBAL"
                     ));
                 }
             }
