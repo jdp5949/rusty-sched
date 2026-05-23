@@ -1,6 +1,26 @@
 # Project notes — post v0.1.0 (2026-05-19)
 
-## v0.4.1 (in progress — branch `feat/v0.4.1-rbac-enforcement`, 2026-05-23)
+## v0.3.2 (in progress — branch `feat/v0.3.2-box-rollup-must-times`, 2026-05-23)
+
+Helpers for box rollup + must_times alerts. Pure functions only; runtime
+wiring is a follow-up.
+
+### Shipped
+- `rsched_scheduler::evaluate_box_state(box, children, child_states) -> BoxState`
+  Eval order: paused → custom failure expr → custom success expr → default
+  rule (all success / any failed / any running / pending).
+- `rsched_alert::evaluate_must_times(now, started_at, must_start_times,
+  must_complete_times) -> SlaBreach`
+  LateStart when all must_start_times today have passed without a start;
+  SlaMiss when running past any must_complete_time that fell after start.
+- 9 new tests (7 box-eval, 6 must_times).
+
+### Out of scope
+- Persisting BoxState (runtime view computed on demand for now)
+- Wiring evaluator + must_times into tick loop + alert dispatch
+- box_terminator runtime: cross-job kill via HandleRegistry
+
+## v0.4.1 (merged 2026-05-23 — PR #33)
 
 Lock down mutation routes. Anonymous writes now return 401.
 

@@ -5,6 +5,7 @@
 
 #![warn(missing_docs)]
 
+mod box_eval;
 mod condition_ctx;
 mod cron;
 mod dag;
@@ -13,9 +14,10 @@ mod error;
 mod handle_registry;
 mod tick;
 
+pub use box_eval::evaluate_box_state;
 pub use cron::next_fire;
 pub use dag::{deps_satisfied, has_cycle};
 pub use dispatch::{should_retry, DispatchIntent, Dispatcher};
 pub use error::SchedulerError;
 pub use handle_registry::HandleRegistry;
-pub use tick::{tick_once, SchedulerConfig};
+pub use tick::{calendar_allows, tick_once, SchedulerConfig};
