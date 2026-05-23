@@ -2,16 +2,18 @@
 //!
 //! Grammar (precedence: not > and > or):
 //! ```text
-//! expr     = or_expr
-//! or_expr  = and_expr ('or' and_expr)*
-//! and_expr = not_expr ('and' not_expr)*
-//! not_expr = 'not' atom | atom
-//! atom     = '(' expr ')' | func_call
-//! func_call = IDENT '(' job_name ')' [cmp_op NUMBER]
-//!           | 'value' '(' name ')'
+//! expr       = or_expr
+//! or_expr    = and_expr ('or' and_expr)*
+//! and_expr   = not_expr ('and' not_expr)*
+//! not_expr   = 'not' atom | atom
+//! atom       = '(' expr ')' | func_call
+//! func_call  = IDENT '(' job_name [',' lookback] ')' [cmp_op NUMBER]
+//!            | 'value' '(' name ')'
+//! lookback   = HH '.' MM            // Autosys look-back: hours.minutes
 //! ```
 
-use crate::expr::{CmpOp, Expr};
+use crate::expr::{parse_lookback, CmpOp, Expr};
+use std::time::Duration;
 use thiserror::Error;
 
 /// Error returned by [`parse`].
@@ -30,6 +32,14 @@ pub enum ParseError {
     UnknownFunction {
         /// The bad function name.
         name: String,
+    },
+    /// Malformed look-back operand.
+    #[error("invalid look-back '{raw}' at position {pos}")]
+    BadLookback {
+        /// Byte position.
+        pos: usize,
+        /// Raw substring.
+        raw: String,
     },
 }
 
@@ -88,8 +98,24 @@ impl<'a> Parser<'a> {
         String::from_utf8_lossy(&self.input[start..self.pos]).into_owned()
     }
 
-    /// Parse a job name inside parens: `(job_name)`. Returns the name.
-    fn parse_paren_name(&mut self) -> Result<String, ParseError> {
+    /// Read `HH.MM` (digits.digits). Used inside parens after the job name.
+    fn read_lookback(&mut self) -> Result<Duration, ParseError> {
+        self.skip_ws();
+        let start = self.pos;
+        while self.pos < self.input.len() {
+            let b = self.input[self.pos];
+            if b.is_ascii_digit() || b == b'.' {
+                self.pos += 1;
+            } else {
+                break;
+            }
+        }
+        let raw = String::from_utf8_lossy(&self.input[start..self.pos]).into_owned();
+        parse_lookback(&raw).ok_or(ParseError::BadLookback { pos: start, raw })
+    }
+
+    /// Parse a job name + optional look-back inside parens: `(name)` or `(name, HH.MM)`.
+    fn parse_paren_name_lb(&mut self) -> Result<(String, Option<Duration>), ParseError> {
         self.expect_char('(')?;
         let name = self.read_ident();
         if name.is_empty() {
@@ -99,8 +125,28 @@ impl<'a> Parser<'a> {
             });
         }
         self.skip_ws();
+        let lb = if self.peek_char() == Some(',') {
+            self.pos += 1;
+            Some(self.read_lookback()?)
+        } else {
+            None
+        };
+        self.skip_ws();
         self.expect_char(')')?;
-        Ok(name)
+        Ok((name, lb))
+    }
+
+    /// Same as [`Self::parse_paren_name_lb`] but rejects a look-back operand.
+    /// Used for functions that don't accept look-back (`running`, `notrunning`, `exitcode`, `value`).
+    fn parse_paren_name(&mut self) -> Result<String, ParseError> {
+        let (n, lb) = self.parse_paren_name_lb()?;
+        if lb.is_some() {
+            return Err(ParseError::Unexpected {
+                pos: self.pos,
+                msg: "look-back operand not supported for this function".into(),
+            });
+        }
+        Ok(n)
     }
 
     /// Try to read a comparison op: `=`, `!=`, `<`, `<=`, `>`, `>=`.
@@ -160,9 +206,18 @@ impl<'a> Parser<'a> {
     fn parse_func_call(&mut self, func: &str) -> Result<Expr, ParseError> {
         let func_lower = func.to_lowercase();
         match func_lower.as_str() {
-            "success" | "s" => Ok(Expr::Success(self.parse_paren_name()?)),
-            "failure" | "f" => Ok(Expr::Failure(self.parse_paren_name()?)),
-            "done" | "d" => Ok(Expr::Done(self.parse_paren_name()?)),
+            "success" | "s" => {
+                let (n, lb) = self.parse_paren_name_lb()?;
+                Ok(Expr::Success(n, lb))
+            }
+            "failure" | "f" => {
+                let (n, lb) = self.parse_paren_name_lb()?;
+                Ok(Expr::Failure(n, lb))
+            }
+            "done" | "d" => {
+                let (n, lb) = self.parse_paren_name_lb()?;
+                Ok(Expr::Done(n, lb))
+            }
             "running" | "r" => Ok(Expr::Running(self.parse_paren_name()?)),
             "notrunning" | "n" => Ok(Expr::NotRunning(self.parse_paren_name()?)),
             "exitcode" => {
@@ -175,6 +230,23 @@ impl<'a> Parser<'a> {
                     })?;
                 let n = self.read_int()?;
                 Ok(Expr::ExitCode(job, op, n))
+            }
+            "numrun" | "numsuc" | "numfail" => {
+                let (job, lb) = self.parse_paren_name_lb()?;
+                let op = self
+                    .try_read_cmp_op()
+                    .ok_or_else(|| ParseError::Unexpected {
+                        pos: self.pos,
+                        msg: format!("expected comparison operator after {func_lower}(...)"),
+                    })?;
+                let n = self.read_int()?;
+                let ctor = match func_lower.as_str() {
+                    "numrun" => Expr::NumRun,
+                    "numsuc" => Expr::NumSuc,
+                    "numfail" => Expr::NumFail,
+                    _ => unreachable!(),
+                };
+                Ok(ctor(job, op, n, lb))
             }
             "value" => Ok(Expr::Value(self.parse_paren_name()?)),
             _ => Err(ParseError::UnknownFunction {
@@ -288,29 +360,33 @@ pub fn parse(input: &str) -> Result<Expr, ParseError> {
 mod tests {
     use super::*;
     use crate::expr::{CmpOp, Expr};
+    use std::time::Duration;
 
     #[test]
     fn simple_success() {
         let e = parse("success(jobA)").unwrap();
-        assert_eq!(e, Expr::Success("jobA".into()));
+        assert_eq!(e, Expr::Success("jobA".into(), None));
     }
 
     #[test]
     fn short_alias_s() {
         let e = parse("s(jobA)").unwrap();
-        assert_eq!(e, Expr::Success("jobA".into()));
+        assert_eq!(e, Expr::Success("jobA".into(), None));
     }
 
     #[test]
     fn failure_alias() {
-        assert_eq!(parse("f(x)").unwrap(), Expr::Failure("x".into()));
-        assert_eq!(parse("failure(x)").unwrap(), Expr::Failure("x".into()));
+        assert_eq!(parse("f(x)").unwrap(), Expr::Failure("x".into(), None));
+        assert_eq!(
+            parse("failure(x)").unwrap(),
+            Expr::Failure("x".into(), None)
+        );
     }
 
     #[test]
     fn done_alias() {
-        assert_eq!(parse("d(x)").unwrap(), Expr::Done("x".into()));
-        assert_eq!(parse("done(x)").unwrap(), Expr::Done("x".into()));
+        assert_eq!(parse("d(x)").unwrap(), Expr::Done("x".into(), None));
+        assert_eq!(parse("done(x)").unwrap(), Expr::Done("x".into(), None));
     }
 
     #[test]
@@ -345,13 +421,85 @@ mod tests {
     }
 
     #[test]
+    fn lookback_success() {
+        let e = parse("success(jobA, 01.30)").unwrap();
+        assert_eq!(
+            e,
+            Expr::Success("jobA".into(), Some(Duration::from_secs(5400)))
+        );
+    }
+
+    #[test]
+    fn lookback_failure_short() {
+        let e = parse("failure(j, 00.05)").unwrap();
+        assert_eq!(e, Expr::Failure("j".into(), Some(Duration::from_secs(300))));
+    }
+
+    #[test]
+    fn lookback_done_long() {
+        let e = parse("done(j, 24.00)").unwrap();
+        assert_eq!(e, Expr::Done("j".into(), Some(Duration::from_secs(86400))));
+    }
+
+    #[test]
+    fn lookback_with_spaces() {
+        let e = parse("success(jobA ,  01.30 )").unwrap();
+        assert_eq!(
+            e,
+            Expr::Success("jobA".into(), Some(Duration::from_secs(5400)))
+        );
+    }
+
+    #[test]
+    fn lookback_invalid_minutes() {
+        let err = parse("success(j, 01.60)").unwrap_err();
+        assert!(matches!(err, ParseError::BadLookback { .. }));
+    }
+
+    #[test]
+    fn lookback_rejected_on_running() {
+        let err = parse("running(j, 01.30)").unwrap_err();
+        assert!(matches!(err, ParseError::Unexpected { .. }));
+    }
+
+    #[test]
+    fn lookback_rejected_on_exitcode() {
+        let err = parse("exitcode(j, 01.30) = 0").unwrap_err();
+        assert!(matches!(err, ParseError::Unexpected { .. }));
+    }
+
+    #[test]
+    fn numrun_basic() {
+        let e = parse("numrun(j) >= 3").unwrap();
+        assert_eq!(e, Expr::NumRun("j".into(), CmpOp::Ge, 3, None));
+    }
+
+    #[test]
+    fn numsuc_with_lookback() {
+        let e = parse("numsuc(j, 02.00) >= 1").unwrap();
+        assert_eq!(
+            e,
+            Expr::NumSuc("j".into(), CmpOp::Ge, 1, Some(Duration::from_secs(7200)))
+        );
+    }
+
+    #[test]
+    fn numfail_with_lookback() {
+        let e = parse("numfail(j, 00.30) < 2").unwrap();
+        assert_eq!(
+            e,
+            Expr::NumFail("j".into(), CmpOp::Lt, 2, Some(Duration::from_secs(1800)))
+        );
+    }
+
+    #[test]
     fn and_expr() {
         let e = parse("success(a) and failure(b)").unwrap();
         assert_eq!(
             e,
             Expr::And(
-                Box::new(Expr::Success("a".into())),
-                Box::new(Expr::Failure("b".into()))
+                Box::new(Expr::Success("a".into(), None)),
+                Box::new(Expr::Failure("b".into(), None))
             )
         );
     }
@@ -362,7 +510,7 @@ mod tests {
         assert_eq!(
             e,
             Expr::Or(
-                Box::new(Expr::Done("a".into())),
+                Box::new(Expr::Done("a".into(), None)),
                 Box::new(Expr::Running("b".into()))
             )
         );
@@ -371,7 +519,7 @@ mod tests {
     #[test]
     fn not_expr() {
         let e = parse("not success(a)").unwrap();
-        assert_eq!(e, Expr::Not(Box::new(Expr::Success("a".into()))));
+        assert_eq!(e, Expr::Not(Box::new(Expr::Success("a".into(), None))));
     }
 
     #[test]
@@ -380,10 +528,10 @@ mod tests {
         assert_eq!(
             e,
             Expr::And(
-                Box::new(Expr::Success("a".into())),
+                Box::new(Expr::Success("a".into(), None)),
                 Box::new(Expr::Or(
-                    Box::new(Expr::Failure("b".into())),
-                    Box::new(Expr::Done("c".into()))
+                    Box::new(Expr::Failure("b".into(), None)),
+                    Box::new(Expr::Done("c".into(), None))
                 ))
             )
         );
@@ -391,8 +539,10 @@ mod tests {
 
     #[test]
     fn complex_autosys_style() {
-        let e =
-            parse("success(jobA) and (failure(jobB) or done(jobC)) and notrunning(jobD)").unwrap();
+        let e = parse(
+            "success(jobA, 02.00) and (failure(jobB) or done(jobC, 00.30)) and notrunning(jobD)",
+        )
+        .unwrap();
         // Just ensure it parses without error.
         assert!(matches!(e, Expr::And(_, _)));
     }
@@ -425,6 +575,11 @@ mod tests {
             "failure(jobB)",
             "exitcode(j) = 0",
             "notrunning(x)",
+            "success(jobA, 01.30)",
+            "done(j, 00.05)",
+            "numrun(j) >= 3",
+            "numsuc(j, 02.00) >= 1",
+            "numfail(j, 00.30) < 2",
         ];
         for s in inputs {
             let e = parse(s).unwrap();

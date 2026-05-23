@@ -1,5 +1,34 @@
 # Project notes — post v0.1.0 (2026-05-19)
 
+## v0.3.0 (in progress — branch `feat/v0.3-autosys-parity-core`, 2026-05-23)
+
+Autosys parity core. Closes the largest JIL feature gap and adds a Cronicle-style
+live log tail.
+
+### Shipped in v0.3.0 slice 1
+- `ExitCodePolicy` (`max_exit_success`, `fail_codes`, `condition_code`) + `RunOutcome`
+- `Job.exclude_calendar_id`, `must_start_times`, `must_complete_times`
+- `Box.box_success_expr`, `box_failure_expr`, `box_terminator`, `job_terminator`, `auto_hold`
+- Condition DSL look-back operand `success(jobA, HH.MM)` on `success`/`failure`/`done`
+- New condition fns `numrun`, `numsuc`, `numfail` (with windowed eval)
+- `StoreUpstreamState` caches 200 recent runs per job → windowed counts work
+- Migration `0002_autosys_parity.sql` (sqlite + postgres)
+- JIL parser covers: `exclude_calendar`, `must_start_times`, `must_complete_times`,
+  `fail_codes`, `max_exit_success`, `condition_code`, `box_success`, `box_failure`,
+  `box_terminator`, `job_terminator`, `auto_hold`
+- REST `GET /api/v1/runs/:id/logs/ws` — WebSocket live log tail
+- UI auto-subscribes to WS when run detail opens; shows a "live" pulse indicator
+- Run dispatcher honors `ExitCodePolicy` → `RunState` mapping
+- 170+ tests pass workspace-wide (45 conditions, 38 core, 18 JIL, 14 store, …)
+
+### Deferred from v0.3 slice 1 → v0.3.1
+- Tick loop honoring `calendar_id` + `exclude_calendar_id` (data model + JIL + repo
+  in place; runtime filter still TODO).
+- Box success/failure expression rollup against children states.
+- `must_start_times` / `must_complete_times` alert firing (data persisted; SLA
+  watcher needs new code paths).
+- Resolving `exclude_calendar` name → CalendarId at JIL apply time.
+
 ## What shipped in v0.1.0
 
 Single Rust binary, runs on Linux/macOS/Windows. `rusty-sched server` boots:

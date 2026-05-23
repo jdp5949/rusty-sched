@@ -225,24 +225,7 @@ fn build_job_spec(
     attrs: Vec<(String, String)>,
     _line: usize,
 ) -> Result<JobSpec, JilError> {
-    let mut spec = JobSpec {
-        name: name.to_string(),
-        job_type: JilJobType::Command,
-        command: None,
-        machine: None,
-        owner: None,
-        days_of_week: None,
-        start_times: None,
-        condition: None,
-        alarm_if_fail: false,
-        n_retrys: 0,
-        term_run_time: None,
-        description: None,
-        std_out_file: None,
-        std_err_file: None,
-        box_name: None,
-        warnings: Vec::new(),
-    };
+    let mut spec = JobSpec::empty(name, JilJobType::Command);
 
     for (key, value) in attrs {
         apply_attr_to_spec(&mut spec, &key, &value)?;
@@ -279,13 +262,32 @@ fn apply_attr_to_spec(spec: &mut JobSpec, key: &str, value: &str) -> Result<(), 
         "std_out_file" => spec.std_out_file = Some(value.to_string()),
         "std_err_file" => spec.std_err_file = Some(value.to_string()),
         "box_name" => spec.box_name = Some(value.to_string()),
+        "exclude_calendar" => spec.exclude_calendar = Some(value.to_string()),
+        "must_start_times" => spec.must_start_times = Some(value.to_string()),
+        "must_complete_times" => spec.must_complete_times = Some(value.to_string()),
+        "fail_codes" => spec.fail_codes = Some(value.to_string()),
+        "max_exit_success" => {
+            spec.max_exit_success = Some(value.parse::<i32>().map_err(|_| JilError::BadValue {
+                attr: key.to_string(),
+                detail: format!("{value:?} is not an integer"),
+            })?);
+        }
+        "condition_code" => {
+            spec.condition_code = Some(value.parse::<i32>().map_err(|_| JilError::BadValue {
+                attr: key.to_string(),
+                detail: format!("{value:?} is not an integer"),
+            })?);
+        }
+        "box_success" => spec.box_success = Some(value.to_string()),
+        "box_failure" => spec.box_failure = Some(value.to_string()),
+        "box_terminator" => spec.box_terminator = Some(parse_yn(value, key)?),
+        "job_terminator" => spec.job_terminator = Some(parse_yn(value, key)?),
+        "auto_hold" => spec.auto_hold = Some(parse_yn(value, key)?),
         // Known-but-ignored attributes that exist in real JIL.
         "date_conditions"
         | "timezone"
         | "run_calendar"
-        | "exclude_calendar"
         | "max_run_alarm"
-        | "job_terminator"
         | "watch_file"
         | "watch_interval"
         | "watch_file_min_size"
@@ -340,6 +342,37 @@ fn apply_attr_to_partial(spec: &mut PartialJobSpec, key: &str, value: &str) {
         "std_out_file" => spec.std_out_file = Some(value.to_string()),
         "std_err_file" => spec.std_err_file = Some(value.to_string()),
         "box_name" => spec.box_name = Some(value.to_string()),
+        "exclude_calendar" => spec.exclude_calendar = Some(value.to_string()),
+        "must_start_times" => spec.must_start_times = Some(value.to_string()),
+        "must_complete_times" => spec.must_complete_times = Some(value.to_string()),
+        "fail_codes" => spec.fail_codes = Some(value.to_string()),
+        "max_exit_success" => {
+            if let Ok(n) = value.parse::<i32>() {
+                spec.max_exit_success = Some(n);
+            }
+        }
+        "condition_code" => {
+            if let Ok(n) = value.parse::<i32>() {
+                spec.condition_code = Some(n);
+            }
+        }
+        "box_success" => spec.box_success = Some(value.to_string()),
+        "box_failure" => spec.box_failure = Some(value.to_string()),
+        "box_terminator" => {
+            if let Ok(b) = parse_yn(value, key) {
+                spec.box_terminator = Some(b);
+            }
+        }
+        "job_terminator" => {
+            if let Ok(b) = parse_yn(value, key) {
+                spec.job_terminator = Some(b);
+            }
+        }
+        "auto_hold" => {
+            if let Ok(b) = parse_yn(value, key) {
+                spec.auto_hold = Some(b);
+            }
+        }
         other => {
             spec.warnings
                 .push(format!("unknown attribute {other:?} ignored"));

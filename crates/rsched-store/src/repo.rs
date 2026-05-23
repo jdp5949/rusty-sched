@@ -129,6 +129,10 @@ impl<'a> JobRepo<'a> {
         let timeout = job.timeout_secs as i64;
         let sla = job.sla_secs as i64;
         let calendar_id = job.calendar_id.as_ref().map(|c| c.to_string());
+        let exclude_calendar_id = job.exclude_calendar_id.as_ref().map(|c| c.to_string());
+        let must_start_times_json = serde_json::to_string(&job.must_start_times)?;
+        let must_complete_times_json = serde_json::to_string(&job.must_complete_times)?;
+        let exit_policy_json = serde_json::to_string(&job.exit_policy)?;
         let paused = job.paused as i64;
         let created = job.created_at.to_rfc3339();
         let updated = job.updated_at.to_rfc3339();
@@ -138,8 +142,9 @@ impl<'a> JobRepo<'a> {
             r#"INSERT INTO jobs
             (id, name, box_id, trigger_kind, trigger_data_json, cmd, args_json, env_json,
              cwd, shell, target_json, retry_json, timeout_secs, sla_secs, calendar_id,
-             misfire_policy, paused, alert_config_json, created_at, updated_at, next_fire_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"#,
+             misfire_policy, paused, alert_config_json, created_at, updated_at, next_fire_at,
+             exclude_calendar_id, must_start_times_json, must_complete_times_json, exit_policy_json)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"#,
         )
         .bind(id)
         .bind(&job.name)
@@ -162,6 +167,10 @@ impl<'a> JobRepo<'a> {
         .bind(created)
         .bind(updated)
         .bind(next_fire)
+        .bind(exclude_calendar_id)
+        .bind(must_start_times_json)
+        .bind(must_complete_times_json)
+        .bind(exit_policy_json)
         .execute(self.pool)
         .await?;
         Ok(())
@@ -263,6 +272,10 @@ impl<'a> JobRepo<'a> {
             .to_string();
         let box_id = job.box_id.as_ref().map(|b| b.to_string());
         let calendar_id = job.calendar_id.as_ref().map(|c| c.to_string());
+        let exclude_calendar_id = job.exclude_calendar_id.as_ref().map(|c| c.to_string());
+        let must_start_times_json = serde_json::to_string(&job.must_start_times)?;
+        let must_complete_times_json = serde_json::to_string(&job.must_complete_times)?;
+        let exit_policy_json = serde_json::to_string(&job.exit_policy)?;
         let timeout = job.timeout_secs as i64;
         let sla = job.sla_secs as i64;
         let paused = job.paused as i64;
@@ -275,7 +288,9 @@ impl<'a> JobRepo<'a> {
                 cmd = ?, args_json = ?, env_json = ?, cwd = ?, shell = ?,
                 target_json = ?, retry_json = ?, timeout_secs = ?, sla_secs = ?,
                 calendar_id = ?, misfire_policy = ?, paused = ?,
-                alert_config_json = ?, updated_at = ?, next_fire_at = ?
+                alert_config_json = ?, updated_at = ?, next_fire_at = ?,
+                exclude_calendar_id = ?, must_start_times_json = ?,
+                must_complete_times_json = ?, exit_policy_json = ?
               WHERE id = ?"#,
         )
         .bind(&job.name)
@@ -297,6 +312,10 @@ impl<'a> JobRepo<'a> {
         .bind(alert_json)
         .bind(updated)
         .bind(next_fire)
+        .bind(exclude_calendar_id)
+        .bind(must_start_times_json)
+        .bind(must_complete_times_json)
+        .bind(exit_policy_json)
         .bind(job.id.to_string())
         .execute(self.pool)
         .await?;
@@ -360,6 +379,29 @@ fn row_to_job(row: &sqlx::any::AnyRow) -> Result<Job, StoreError> {
         .transpose()
         .map_err(|e| StoreError::NotFound(format!("bad ts: {e}")))?;
 
+    let exclude_calendar_id: Option<String> = row.try_get("exclude_calendar_id").ok().flatten();
+    let exclude_calendar_id = exclude_calendar_id
+        .as_deref()
+        .map(|s| s.parse())
+        .transpose()
+        .map_err(|e: ulid::DecodeError| StoreError::NotFound(format!("bad excl cal id: {e}")))?;
+    let must_start_times_json: Option<String> = row.try_get("must_start_times_json").ok().flatten();
+    let must_start_times = match must_start_times_json {
+        Some(s) if !s.is_empty() => serde_json::from_str(&s)?,
+        _ => Vec::new(),
+    };
+    let must_complete_times_json: Option<String> =
+        row.try_get("must_complete_times_json").ok().flatten();
+    let must_complete_times = match must_complete_times_json {
+        Some(s) if !s.is_empty() => serde_json::from_str(&s)?,
+        _ => Vec::new(),
+    };
+    let exit_policy_json: Option<String> = row.try_get("exit_policy_json").ok().flatten();
+    let exit_policy = match exit_policy_json {
+        Some(s) if !s.is_empty() => serde_json::from_str(&s)?,
+        _ => rsched_core::ExitCodePolicy::default(),
+    };
+
     Ok(Job {
         id,
         name,
@@ -375,6 +417,10 @@ fn row_to_job(row: &sqlx::any::AnyRow) -> Result<Job, StoreError> {
         timeout_secs: timeout_secs as u64,
         sla_secs: sla_secs as u64,
         calendar_id,
+        exclude_calendar_id,
+        must_start_times,
+        must_complete_times,
+        exit_policy,
         misfire,
         dependencies: Vec::new(), // loaded separately via dep table when needed
         paused: paused != 0,
@@ -850,6 +896,47 @@ mod tests {
         let back = store.jobs().get(job.id).await.unwrap();
         assert_eq!(back.name, "my-job");
         assert_eq!(back.timeout_secs, 60);
+    }
+
+    #[tokio::test]
+    async fn job_autosys_fields_roundtrip() {
+        use chrono::NaiveTime;
+        use rsched_core::ExitCodePolicy;
+        let store = fresh_store().await;
+        let mut job = JobBuilder::new("audit", "echo hi", cron_trigger())
+            .build()
+            .unwrap();
+        job.exit_policy = ExitCodePolicy {
+            max_exit_success: 2,
+            fail_codes: vec![100, 101],
+            condition_code: Some(7),
+        };
+        job.must_start_times = vec![NaiveTime::from_hms_opt(2, 0, 0).unwrap()];
+        job.must_complete_times = vec![NaiveTime::from_hms_opt(4, 30, 0).unwrap()];
+        store.jobs().insert(&job).await.unwrap();
+        let back = store.jobs().get(job.id).await.unwrap();
+        assert_eq!(back.exit_policy.max_exit_success, 2);
+        assert_eq!(back.exit_policy.fail_codes, vec![100, 101]);
+        assert_eq!(back.exit_policy.condition_code, Some(7));
+        assert_eq!(back.must_start_times.len(), 1);
+        assert_eq!(back.must_complete_times.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn job_autosys_fields_update_persists() {
+        use rsched_core::ExitCodePolicy;
+        let store = fresh_store().await;
+        let mut job = JobBuilder::new("audit2", "echo hi", cron_trigger())
+            .build()
+            .unwrap();
+        store.jobs().insert(&job).await.unwrap();
+        job.exit_policy = ExitCodePolicy {
+            max_exit_success: 4,
+            ..Default::default()
+        };
+        store.jobs().update(&job).await.unwrap();
+        let back = store.jobs().get(job.id).await.unwrap();
+        assert_eq!(back.exit_policy.max_exit_success, 4);
     }
 
     #[tokio::test]

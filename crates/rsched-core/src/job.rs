@@ -1,10 +1,10 @@
 //! Job — the unit a user schedules.
 
 use crate::{
-    AlertConfig, BoxId, CalendarId, CoreError, JobId, MisfirePolicy, RetryPolicy, Shell, Target,
-    Trigger,
+    AlertConfig, BoxId, CalendarId, CoreError, ExitCodePolicy, JobId, MisfirePolicy, RetryPolicy,
+    Shell, Target, Trigger,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -59,8 +59,20 @@ pub struct Job {
     pub timeout_secs: u64,
     /// Soft SLA in seconds (0 = none).
     pub sla_secs: u64,
-    /// Optional calendar.
+    /// Optional include-calendar (job allowed only when this allows).
     pub calendar_id: Option<CalendarId>,
+    /// Optional exclude-calendar (job blocked when this allows). Autosys `exclude_calendar`.
+    #[serde(default)]
+    pub exclude_calendar_id: Option<CalendarId>,
+    /// Must-start-by times of day (UTC). Used for `OnLateStart` alerts. Autosys `must_start_times`.
+    #[serde(default)]
+    pub must_start_times: Vec<NaiveTime>,
+    /// Must-complete-by times of day (UTC). Used for `OnSlaMiss`. Autosys `must_complete_times`.
+    #[serde(default)]
+    pub must_complete_times: Vec<NaiveTime>,
+    /// Exit-code policy (Autosys `max_exit_success`, `fail_codes`, `condition_code`).
+    #[serde(default)]
+    pub exit_policy: ExitCodePolicy,
     /// Misfire policy.
     pub misfire: MisfirePolicy,
     /// Upstream deps (besides Dep trigger, used for ordering inside boxes).
@@ -89,8 +101,16 @@ impl Job {
         }
         self.trigger.validate()?;
         self.retry.validate()?;
+        self.exit_policy.validate()?;
         if self.timeout_secs != 0 && self.sla_secs != 0 && self.sla_secs > self.timeout_secs {
             return Err(CoreError::InvalidRetry("sla_secs > timeout_secs"));
+        }
+        if let (Some(inc), Some(exc)) = (&self.calendar_id, &self.exclude_calendar_id) {
+            if inc == exc {
+                return Err(CoreError::InvalidCalendar(
+                    "calendar_id and exclude_calendar_id must differ",
+                ));
+            }
         }
         Ok(())
     }
@@ -140,6 +160,10 @@ impl JobBuilder {
                 timeout_secs: 0,
                 sla_secs: 0,
                 calendar_id: None,
+                exclude_calendar_id: None,
+                must_start_times: Vec::new(),
+                must_complete_times: Vec::new(),
+                exit_policy: ExitCodePolicy::default(),
                 misfire: MisfirePolicy::default(),
                 dependencies: Vec::new(),
                 paused: false,

@@ -19,7 +19,8 @@ pub use error::CoreError;
 pub use ids::{AgentId, BoxId, CalendarId, JobId, RunId, UserId};
 pub use job::{DepCondition, DepEdge, Job, JobBuilder};
 pub use policy::{
-    AlertChannel, AlertConfig, AlertEvent, BackoffKind, MisfirePolicy, RetryPolicy, Shell,
+    AlertChannel, AlertConfig, AlertEvent, BackoffKind, ExitCodePolicy, MisfirePolicy, RetryPolicy,
+    RunOutcome, Shell,
 };
 pub use r#box::{Box as JobBox, BoxState};
 pub use run::{Run, RunState};
