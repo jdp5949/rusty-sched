@@ -1,6 +1,16 @@
 # Project notes — post v0.1.0 (2026-05-19)
 
-## v0.6.0 (in progress — branch `feat/v0.6-sendevent-globals-autorep`, 2026-05-23)
+## v0.5.1 (in progress — branch `feat/v0.5.1-resources-rest-ui-jil`, 2026-05-23)
+
+Finish virtual-resources feature loop: REST endpoints, UI page, JIL parser.
+
+### Shipped
+- REST: `GET|POST /api/v1/resources`, `GET|DELETE /api/v1/resources/:name` (write = RequireWrite + audit). `ResourceRow` response includes `available` (capacity - sum of holds).
+- UI: new **Resources** tab. Create form (name + capacity + description). Table with capacity bar + in-use count + delete.
+- UI: new **Globals** tab. Set / list / delete with truthy-value hint.
+- JIL: `resources: "name(units), name2, name3(N)"` parses into `Vec<ResourceClaim>` (default 1 unit when omitted). Malformed entries emit warnings.
+
+## v0.6.0 (merged 2026-05-23 — PR #36)
 
 Autosys-compat sendevent verbs + global variables + autorep CLI.
 

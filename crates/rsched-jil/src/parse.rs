@@ -283,6 +283,7 @@ fn apply_attr_to_spec(spec: &mut JobSpec, key: &str, value: &str) -> Result<(), 
         "box_terminator" => spec.box_terminator = Some(parse_yn(value, key)?),
         "job_terminator" => spec.job_terminator = Some(parse_yn(value, key)?),
         "auto_hold" => spec.auto_hold = Some(parse_yn(value, key)?),
+        "resources" => spec.resources = Some(value.to_string()),
         // Known-but-ignored attributes that exist in real JIL.
         "date_conditions"
         | "timezone"
@@ -373,6 +374,7 @@ fn apply_attr_to_partial(spec: &mut PartialJobSpec, key: &str, value: &str) {
                 spec.auto_hold = Some(b);
             }
         }
+        "resources" => spec.resources = Some(value.to_string()),
         other => {
             spec.warnings
                 .push(format!("unknown attribute {other:?} ignored"));

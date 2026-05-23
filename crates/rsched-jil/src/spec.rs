@@ -68,6 +68,8 @@ pub struct JobSpec {
     pub job_terminator: Option<bool>,
     /// (Box only) auto-hold children when box transitions to Running.
     pub auto_hold: Option<bool>,
+    /// Resource claims in raw Autosys form: `"resA(3),resB(1)"` or `"resA"` (=1 unit).
+    pub resources: Option<String>,
     /// Warnings collected during parse (unknown attributes etc.).
     pub warnings: Vec<String>,
 }
@@ -124,6 +126,8 @@ pub struct PartialJobSpec {
     pub job_terminator: Option<bool>,
     /// Auto hold.
     pub auto_hold: Option<bool>,
+    /// Resource claims.
+    pub resources: Option<String>,
     /// Warnings.
     pub warnings: Vec<String>,
 }
@@ -159,6 +163,7 @@ impl JobSpec {
             box_terminator: None,
             job_terminator: None,
             auto_hold: None,
+            resources: None,
             warnings: Vec::new(),
         }
     }

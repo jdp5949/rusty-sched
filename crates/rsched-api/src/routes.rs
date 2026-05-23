@@ -62,6 +62,15 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/globals/:name",
             get(get_global).delete(delete_global),
         )
+        // Virtual resources (Autosys-style counters).
+        .route(
+            "/api/v1/resources",
+            get(list_resources).post(create_resource),
+        )
+        .route(
+            "/api/v1/resources/:name",
+            get(get_resource).delete(delete_resource),
+        )
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth::middleware,
@@ -461,6 +470,124 @@ async fn delete_global(
             "global.delete",
             "global",
             Some(&name),
+            None,
+        )
+        .await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ----- Resources -----------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+struct ResourceRow {
+    id: String,
+    name: String,
+    capacity: u32,
+    description: Option<String>,
+    available: u32,
+}
+
+async fn list_resources(State(s): State<AppState>) -> Result<Json<Vec<ResourceRow>>, ApiError> {
+    let resources = s.store.resources().list().await?;
+    let mut out = Vec::with_capacity(resources.len());
+    for r in resources {
+        let avail = s.store.resources().available_units(r.id).await?;
+        out.push(ResourceRow {
+            id: r.id.to_string(),
+            name: r.name,
+            capacity: r.capacity,
+            description: r.description,
+            available: avail,
+        });
+    }
+    Ok(Json(out))
+}
+
+async fn get_resource(
+    State(s): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<ResourceRow>, ApiError> {
+    let r = s
+        .store
+        .resources()
+        .get_by_name(&name)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(name.clone()))?;
+    let avail = s.store.resources().available_units(r.id).await?;
+    Ok(Json(ResourceRow {
+        id: r.id.to_string(),
+        name: r.name,
+        capacity: r.capacity,
+        description: r.description,
+        available: avail,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateResourceReq {
+    name: String,
+    capacity: u32,
+    #[serde(default)]
+    description: Option<String>,
+}
+
+async fn create_resource(
+    State(s): State<AppState>,
+    crate::auth::RequireWrite(ctx): crate::auth::RequireWrite,
+    Json(req): Json<CreateResourceReq>,
+) -> Result<(StatusCode, Json<ResourceRow>), ApiError> {
+    let r = rsched_core::Resource {
+        id: rsched_core::ResourceId::new(),
+        name: req.name.clone(),
+        capacity: req.capacity,
+        description: req.description.clone(),
+        created_at: chrono::Utc::now(),
+    };
+    r.validate()?;
+    s.store.resources().insert(&r).await?;
+    let _ = s
+        .store
+        .audit()
+        .record(
+            Some(&ctx.user_id.to_string()),
+            "resource.create",
+            "resource",
+            Some(&r.id.to_string()),
+            None,
+        )
+        .await;
+    Ok((
+        StatusCode::CREATED,
+        Json(ResourceRow {
+            id: r.id.to_string(),
+            name: r.name,
+            capacity: r.capacity,
+            description: r.description,
+            available: req.capacity,
+        }),
+    ))
+}
+
+async fn delete_resource(
+    State(s): State<AppState>,
+    crate::auth::RequireWrite(ctx): crate::auth::RequireWrite,
+    Path(name): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let r = s
+        .store
+        .resources()
+        .get_by_name(&name)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(name.clone()))?;
+    s.store.resources().delete(r.id).await?;
+    let _ = s
+        .store
+        .audit()
+        .record(
+            Some(&ctx.user_id.to_string()),
+            "resource.delete",
+            "resource",
+            Some(&r.id.to_string()),
             None,
         )
         .await;
