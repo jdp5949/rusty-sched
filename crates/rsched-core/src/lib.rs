@@ -4,6 +4,7 @@
 
 #![warn(missing_docs)]
 
+mod auth;
 mod r#box;
 mod calendar;
 mod error;
@@ -14,9 +15,10 @@ mod run;
 mod target;
 mod trigger;
 
+pub use auth::{ApiKey, Role, User};
 pub use calendar::{Calendar, CalendarRule};
 pub use error::CoreError;
-pub use ids::{AgentId, BoxId, CalendarId, JobId, RunId, UserId};
+pub use ids::{AgentId, ApiKeyId, BoxId, CalendarId, JobId, RunId, UserId};
 pub use job::{DepCondition, DepEdge, Job, JobBuilder};
 pub use policy::{
     AlertChannel, AlertConfig, AlertEvent, BackoffKind, ExitCodePolicy, MisfirePolicy, RetryPolicy,

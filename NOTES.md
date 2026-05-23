@@ -1,5 +1,32 @@
 # Project notes — post v0.1.0 (2026-05-19)
 
+## v0.4.0 (in progress — branch `feat/v0.4-auth-rbac-apikeys`, 2026-05-23)
+
+Auth + RBAC + API keys. First security slice.
+
+### Shipped
+- `rsched_core::auth`: `Role` (admin / operator / viewer), `User`, `ApiKey`
+- `rsched_store`: `UserRepo`, `SessionRepo`, `ApiKeyRepo`, `AuditRepo` (full CRUD)
+- Migration `0003_api_keys.sql` (sqlite + postgres)
+- `rsched_api::auth` middleware: `rsched_session` cookie OR `Authorization: Bearer <token>`
+- Extractors: `AuthUser`, `RequireWrite`, `RequireAdmin`
+- Routes: `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`, `GET|POST /auth/api-keys`, `DELETE /auth/api-keys/:id`, `GET|POST /users`, `GET /audit`
+- bcrypt password hashing + bcrypt-hashed API key tokens (one-shot plaintext at creation)
+- 12-hour session TTL with prune
+- Audit log entries on login, api-key create/delete, user create
+- First-run admin seed: `RSCHED_ADMIN_PASSWORD` env var (or random + log warning)
+- UI: login page, header with username/role/logout
+
+### Deferred → v0.4.1
+- `RequireWrite` / `RequireAdmin` on mutation routes (kept off so existing integration tests pass; flip after follow-up that updates tests)
+- CSRF tokens for cookie flow
+- Password change + admin reset routes
+- User disable/delete
+
+## v0.3.1 (merged 2026-05-23)
+
+- Tick loop honors `Job.calendar_id` (include) + `Job.exclude_calendar_id` (exclude). Blocked jobs advance `next_fire_at` and skip dispatch.
+
 ## v0.3.0 (in progress — branch `feat/v0.3-autosys-parity-core`, 2026-05-23)
 
 Autosys parity core. Closes the largest JIL feature gap and adds a Cronicle-style

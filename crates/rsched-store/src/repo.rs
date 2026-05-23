@@ -62,6 +62,22 @@ impl Store {
     pub fn run_logs(&self) -> RunLogRepo<'_> {
         RunLogRepo { pool: &self.pool }
     }
+    /// User repository.
+    pub fn users(&self) -> UserRepo<'_> {
+        UserRepo { pool: &self.pool }
+    }
+    /// Session repository.
+    pub fn sessions(&self) -> SessionRepo<'_> {
+        SessionRepo { pool: &self.pool }
+    }
+    /// API key repository.
+    pub fn api_keys(&self) -> ApiKeyRepo<'_> {
+        ApiKeyRepo { pool: &self.pool }
+    }
+    /// Audit log repository.
+    pub fn audit(&self) -> AuditRepo<'_> {
+        AuditRepo { pool: &self.pool }
+    }
 }
 
 fn trigger_kind_str(k: TriggerKind) -> &'static str {
@@ -1209,5 +1225,562 @@ mod tests {
         assert!(!due.is_empty());
 
         store.jobs().delete(job.id).await.unwrap();
+    }
+}
+
+// ----- Users / Sessions / API keys / Audit ---------------------------------
+
+use rsched_core::{ApiKey, ApiKeyId, Role, User, UserId};
+
+fn parse_ts(s: &str) -> Result<DateTime<Utc>, StoreError> {
+    Ok(DateTime::parse_from_rfc3339(s)
+        .map_err(|e| StoreError::NotFound(format!("bad ts: {e}")))?
+        .with_timezone(&Utc))
+}
+
+/// User repository.
+pub struct UserRepo<'a> {
+    pool: &'a AnyPool,
+}
+
+impl<'a> UserRepo<'a> {
+    /// Insert a new user. `password_hash` is the bcrypt hash.
+    pub async fn insert(
+        &self,
+        id: UserId,
+        username: &str,
+        password_hash: &str,
+        role: Role,
+    ) -> Result<(), StoreError> {
+        let now = Utc::now().to_rfc3339();
+        sqlx::query(
+            "INSERT INTO users (id, username, password_hash, role, disabled, created_at) \
+             VALUES (?, ?, ?, ?, 0, ?)",
+        )
+        .bind(id.to_string())
+        .bind(username)
+        .bind(password_hash)
+        .bind(role.as_str())
+        .bind(now)
+        .execute(self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Look up by username, returning user + password hash.
+    pub async fn get_by_username(
+        &self,
+        username: &str,
+    ) -> Result<Option<(User, String)>, StoreError> {
+        let row = sqlx::query(
+            "SELECT id, username, password_hash, role, disabled, created_at \
+             FROM users WHERE username = ?",
+        )
+        .bind(username)
+        .fetch_optional(self.pool)
+        .await?;
+        match row {
+            Some(r) => Ok(Some(Self::row_to_user_with_hash(&r)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Look up by id.
+    pub async fn get(&self, id: UserId) -> Result<User, StoreError> {
+        let row = sqlx::query(
+            "SELECT id, username, password_hash, role, disabled, created_at \
+             FROM users WHERE id = ?",
+        )
+        .bind(id.to_string())
+        .fetch_optional(self.pool)
+        .await?
+        .ok_or_else(|| StoreError::NotFound(id.to_string()))?;
+        let (u, _) = Self::row_to_user_with_hash(&row)?;
+        Ok(u)
+    }
+
+    /// List all users.
+    pub async fn list(&self) -> Result<Vec<User>, StoreError> {
+        let rows = sqlx::query(
+            "SELECT id, username, password_hash, role, disabled, created_at \
+             FROM users ORDER BY username",
+        )
+        .fetch_all(self.pool)
+        .await?;
+        rows.iter()
+            .map(|r| Self::row_to_user_with_hash(r).map(|(u, _)| u))
+            .collect()
+    }
+
+    /// Set a new password hash.
+    pub async fn set_password_hash(
+        &self,
+        id: UserId,
+        password_hash: &str,
+    ) -> Result<(), StoreError> {
+        sqlx::query("UPDATE users SET password_hash = ? WHERE id = ?")
+            .bind(password_hash)
+            .bind(id.to_string())
+            .execute(self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Set a user's enabled/disabled flag.
+    pub async fn set_disabled(&self, id: UserId, disabled: bool) -> Result<(), StoreError> {
+        sqlx::query("UPDATE users SET disabled = ? WHERE id = ?")
+            .bind(disabled as i64)
+            .bind(id.to_string())
+            .execute(self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Count users — used by `/readyz` and to decide whether to seed an admin.
+    pub async fn count(&self) -> Result<i64, StoreError> {
+        let row = sqlx::query("SELECT COUNT(*) AS n FROM users")
+            .fetch_one(self.pool)
+            .await?;
+        Ok(row.try_get("n")?)
+    }
+
+    fn row_to_user_with_hash(row: &AnyRow) -> Result<(User, String), StoreError> {
+        let id_str: String = row.try_get("id")?;
+        let id: UserId = id_str
+            .parse()
+            .map_err(|e: ulid::DecodeError| StoreError::NotFound(format!("bad user id: {e}")))?;
+        let username: String = row.try_get("username")?;
+        let pw: String = row.try_get("password_hash")?;
+        let role_str: String = row.try_get("role")?;
+        let role = Role::parse(&role_str)
+            .ok_or_else(|| StoreError::NotFound(format!("bad role: {role_str}")))?;
+        let disabled: i64 = row.try_get("disabled")?;
+        let created_at_str: String = row.try_get("created_at")?;
+        let created_at = parse_ts(&created_at_str)?;
+        Ok((
+            User {
+                id,
+                username,
+                role,
+                disabled: disabled != 0,
+                created_at,
+            },
+            pw,
+        ))
+    }
+}
+
+/// Session repository.
+pub struct SessionRepo<'a> {
+    pool: &'a AnyPool,
+}
+
+impl<'a> SessionRepo<'a> {
+    /// Insert a session. The token should be a cryptographically random string.
+    pub async fn insert(
+        &self,
+        token: &str,
+        user_id: UserId,
+        expires_at: DateTime<Utc>,
+        ip: Option<&str>,
+    ) -> Result<(), StoreError> {
+        let now = Utc::now().to_rfc3339();
+        sqlx::query(
+            "INSERT INTO sessions (token, user_id, expires_at, created_at, ip) \
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(token)
+        .bind(user_id.to_string())
+        .bind(expires_at.to_rfc3339())
+        .bind(now)
+        .bind(ip)
+        .execute(self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Look up session by token, returning the (user_id, expires_at) if alive.
+    pub async fn get_valid(
+        &self,
+        token: &str,
+        now: DateTime<Utc>,
+    ) -> Result<Option<(UserId, DateTime<Utc>)>, StoreError> {
+        let row = sqlx::query("SELECT user_id, expires_at FROM sessions WHERE token = ?")
+            .bind(token)
+            .fetch_optional(self.pool)
+            .await?;
+        let row = match row {
+            Some(r) => r,
+            None => return Ok(None),
+        };
+        let uid_str: String = row.try_get("user_id")?;
+        let uid: UserId = uid_str
+            .parse()
+            .map_err(|e: ulid::DecodeError| StoreError::NotFound(format!("bad user id: {e}")))?;
+        let exp_str: String = row.try_get("expires_at")?;
+        let exp = parse_ts(&exp_str)?;
+        if exp <= now {
+            return Ok(None);
+        }
+        Ok(Some((uid, exp)))
+    }
+
+    /// Delete a session (logout).
+    pub async fn delete(&self, token: &str) -> Result<(), StoreError> {
+        sqlx::query("DELETE FROM sessions WHERE token = ?")
+            .bind(token)
+            .execute(self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Prune expired sessions.
+    pub async fn prune_expired(&self, now: DateTime<Utc>) -> Result<u64, StoreError> {
+        let res = sqlx::query("DELETE FROM sessions WHERE expires_at <= ?")
+            .bind(now.to_rfc3339())
+            .execute(self.pool)
+            .await?;
+        Ok(res.rows_affected())
+    }
+}
+
+/// API key repository.
+pub struct ApiKeyRepo<'a> {
+    pool: &'a AnyPool,
+}
+
+impl<'a> ApiKeyRepo<'a> {
+    /// Insert an API key (bcrypt-hashed token).
+    pub async fn insert(
+        &self,
+        id: ApiKeyId,
+        user_id: UserId,
+        name: &str,
+        key_hash: &str,
+        expires_at: Option<DateTime<Utc>>,
+    ) -> Result<(), StoreError> {
+        let now = Utc::now().to_rfc3339();
+        sqlx::query(
+            "INSERT INTO api_keys (id, user_id, name, key_hash, created_at, last_used_at, expires_at, disabled) \
+             VALUES (?, ?, ?, ?, ?, NULL, ?, 0)",
+        )
+        .bind(id.to_string())
+        .bind(user_id.to_string())
+        .bind(name)
+        .bind(key_hash)
+        .bind(now)
+        .bind(expires_at.map(|t| t.to_rfc3339()))
+        .execute(self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// List all keys (metadata only).
+    pub async fn list_for_user(&self, user_id: UserId) -> Result<Vec<ApiKey>, StoreError> {
+        let rows = sqlx::query(
+            "SELECT id, user_id, name, created_at, last_used_at, expires_at, disabled \
+             FROM api_keys WHERE user_id = ? ORDER BY created_at DESC",
+        )
+        .bind(user_id.to_string())
+        .fetch_all(self.pool)
+        .await?;
+        rows.iter().map(Self::row_to_api_key).collect()
+    }
+
+    /// Fetch every key's `(id, user_id, hash)` — auth-time lookup.
+    pub async fn all_active(
+        &self,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<(ApiKeyId, UserId, String)>, StoreError> {
+        let rows = sqlx::query(
+            "SELECT id, user_id, key_hash, expires_at, disabled FROM api_keys \
+             WHERE disabled = 0",
+        )
+        .fetch_all(self.pool)
+        .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            let exp_str: Option<String> = r.try_get("expires_at")?;
+            if let Some(s) = exp_str {
+                if parse_ts(&s)? <= now {
+                    continue;
+                }
+            }
+            let id_str: String = r.try_get("id")?;
+            let id: ApiKeyId = id_str
+                .parse()
+                .map_err(|e: ulid::DecodeError| StoreError::NotFound(format!("bad key id: {e}")))?;
+            let uid_str: String = r.try_get("user_id")?;
+            let uid: UserId = uid_str.parse().map_err(|e: ulid::DecodeError| {
+                StoreError::NotFound(format!("bad user id: {e}"))
+            })?;
+            let hash: String = r.try_get("key_hash")?;
+            out.push((id, uid, hash));
+        }
+        Ok(out)
+    }
+
+    /// Update `last_used_at`.
+    pub async fn touch(&self, id: ApiKeyId) -> Result<(), StoreError> {
+        let now = Utc::now().to_rfc3339();
+        sqlx::query("UPDATE api_keys SET last_used_at = ? WHERE id = ?")
+            .bind(now)
+            .bind(id.to_string())
+            .execute(self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Delete a key.
+    pub async fn delete(&self, id: ApiKeyId) -> Result<(), StoreError> {
+        sqlx::query("DELETE FROM api_keys WHERE id = ?")
+            .bind(id.to_string())
+            .execute(self.pool)
+            .await?;
+        Ok(())
+    }
+
+    fn row_to_api_key(row: &AnyRow) -> Result<ApiKey, StoreError> {
+        let id_str: String = row.try_get("id")?;
+        let id: ApiKeyId = id_str
+            .parse()
+            .map_err(|e: ulid::DecodeError| StoreError::NotFound(format!("bad key id: {e}")))?;
+        let uid_str: String = row.try_get("user_id")?;
+        let user_id: UserId = uid_str
+            .parse()
+            .map_err(|e: ulid::DecodeError| StoreError::NotFound(format!("bad user id: {e}")))?;
+        let name: String = row.try_get("name")?;
+        let created_at_str: String = row.try_get("created_at")?;
+        let last_used_str: Option<String> = row.try_get("last_used_at")?;
+        let expires_str: Option<String> = row.try_get("expires_at")?;
+        let disabled: i64 = row.try_get("disabled")?;
+        Ok(ApiKey {
+            id,
+            user_id,
+            name,
+            created_at: parse_ts(&created_at_str)?,
+            last_used_at: last_used_str.as_deref().map(parse_ts).transpose()?,
+            expires_at: expires_str.as_deref().map(parse_ts).transpose()?,
+            disabled: disabled != 0,
+        })
+    }
+}
+
+/// One row in the audit log.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AuditEntry {
+    /// Row id.
+    pub id: String,
+    /// User who performed the action (None for system).
+    pub user_id: Option<String>,
+    /// Action verb, e.g. "job.create", "job.delete".
+    pub action: String,
+    /// Target resource type ("job", "run", "user", …).
+    pub target_type: String,
+    /// Target resource id (ULID string).
+    pub target_id: Option<String>,
+    /// Optional JSON payload with details.
+    pub payload_json: Option<String>,
+    /// Timestamp.
+    pub ts: String,
+}
+
+/// Audit log repository.
+pub struct AuditRepo<'a> {
+    pool: &'a AnyPool,
+}
+
+impl<'a> AuditRepo<'a> {
+    /// Insert an audit row.
+    pub async fn record(
+        &self,
+        user_id: Option<&str>,
+        action: &str,
+        target_type: &str,
+        target_id: Option<&str>,
+        payload_json: Option<&str>,
+    ) -> Result<(), StoreError> {
+        let id = ulid::Ulid::new().to_string();
+        let ts = Utc::now().to_rfc3339();
+        sqlx::query(
+            "INSERT INTO audit_log (id, user_id, action, target_type, target_id, payload_json, ts) \
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(id)
+        .bind(user_id)
+        .bind(action)
+        .bind(target_type)
+        .bind(target_id)
+        .bind(payload_json)
+        .bind(ts)
+        .execute(self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Fetch recent entries (newest first).
+    pub async fn recent(&self, limit: i64) -> Result<Vec<AuditEntry>, StoreError> {
+        let rows = sqlx::query(
+            "SELECT id, user_id, action, target_type, target_id, payload_json, ts \
+             FROM audit_log ORDER BY ts DESC LIMIT ?",
+        )
+        .bind(limit)
+        .fetch_all(self.pool)
+        .await?;
+        rows.iter()
+            .map(|r| {
+                Ok(AuditEntry {
+                    id: r.try_get("id")?,
+                    user_id: r.try_get("user_id")?,
+                    action: r.try_get("action")?,
+                    target_type: r.try_get("target_type")?,
+                    target_id: r.try_get("target_id")?,
+                    payload_json: r.try_get("payload_json")?,
+                    ts: r.try_get("ts")?,
+                })
+            })
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod auth_tests {
+    use super::*;
+    use rsched_core::Role;
+
+    async fn fresh_store() -> Store {
+        crate::pool::init_drivers();
+        let pool = crate::open_pool("sqlite::memory:").await.unwrap();
+        let s = Store::with_url(pool, "sqlite::memory:");
+        s.migrate().await.unwrap();
+        s
+    }
+
+    #[tokio::test]
+    async fn user_insert_lookup_roundtrip() {
+        let store = fresh_store().await;
+        let id = UserId::new();
+        store
+            .users()
+            .insert(id, "alice", "$2y$dummy", Role::Admin)
+            .await
+            .unwrap();
+        let (u, h) = store
+            .users()
+            .get_by_username("alice")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(u.username, "alice");
+        assert_eq!(u.role, Role::Admin);
+        assert_eq!(h, "$2y$dummy");
+        let by_id = store.users().get(id).await.unwrap();
+        assert_eq!(by_id.username, "alice");
+    }
+
+    #[tokio::test]
+    async fn user_count_and_list() {
+        let store = fresh_store().await;
+        assert_eq!(store.users().count().await.unwrap(), 0);
+        store
+            .users()
+            .insert(UserId::new(), "u1", "x", Role::Viewer)
+            .await
+            .unwrap();
+        store
+            .users()
+            .insert(UserId::new(), "u2", "x", Role::Operator)
+            .await
+            .unwrap();
+        assert_eq!(store.users().count().await.unwrap(), 2);
+        assert_eq!(store.users().list().await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn session_lifecycle() {
+        let store = fresh_store().await;
+        let uid = UserId::new();
+        store
+            .users()
+            .insert(uid, "alice", "x", Role::Admin)
+            .await
+            .unwrap();
+        let exp = Utc::now() + chrono::Duration::hours(1);
+        store
+            .sessions()
+            .insert("tok-abc", uid, exp, None)
+            .await
+            .unwrap();
+        let got = store
+            .sessions()
+            .get_valid("tok-abc", Utc::now())
+            .await
+            .unwrap();
+        assert!(got.is_some());
+        // Expired session: insert past expiry.
+        let past = Utc::now() - chrono::Duration::hours(1);
+        store
+            .sessions()
+            .insert("tok-old", uid, past, None)
+            .await
+            .unwrap();
+        assert!(store
+            .sessions()
+            .get_valid("tok-old", Utc::now())
+            .await
+            .unwrap()
+            .is_none());
+        // Delete + prune.
+        store.sessions().delete("tok-abc").await.unwrap();
+        let pruned = store.sessions().prune_expired(Utc::now()).await.unwrap();
+        assert_eq!(pruned, 1);
+    }
+
+    #[tokio::test]
+    async fn api_key_crud() {
+        let store = fresh_store().await;
+        let uid = UserId::new();
+        store
+            .users()
+            .insert(uid, "alice", "x", Role::Admin)
+            .await
+            .unwrap();
+        let kid = ApiKeyId::new();
+        store
+            .api_keys()
+            .insert(kid, uid, "ci", "$2y$hash", None)
+            .await
+            .unwrap();
+        let keys = store.api_keys().list_for_user(uid).await.unwrap();
+        assert_eq!(keys.len(), 1);
+        let active = store.api_keys().all_active(Utc::now()).await.unwrap();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].2, "$2y$hash");
+        store.api_keys().touch(kid).await.unwrap();
+        store.api_keys().delete(kid).await.unwrap();
+        assert!(store
+            .api_keys()
+            .list_for_user(uid)
+            .await
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn audit_record_and_list() {
+        let store = fresh_store().await;
+        store
+            .audit()
+            .record(Some("user-1"), "job.create", "job", Some("job-1"), None)
+            .await
+            .unwrap();
+        store
+            .audit()
+            .record(None, "system.start", "system", None, None)
+            .await
+            .unwrap();
+        let entries = store.audit().recent(10).await.unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].action, "system.start");
     }
 }

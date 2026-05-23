@@ -16,7 +16,7 @@ use clap::{Parser, Subcommand};
 use directories::ProjectDirs;
 use futures::StreamExt;
 use rsched_agent::{Executor, LocalExecutor};
-use rsched_api::{router as api_router, AppState};
+use rsched_api::{router as api_router, seed_admin_if_empty, AppState};
 use rsched_core::Run;
 use rsched_core::RunState;
 use rsched_scheduler::{
@@ -251,7 +251,10 @@ async fn run_server(
 
     // HTTP server: API + UI both routed.
     let state = AppState::with_registry(store, registry);
-    let app = api_router(state).merge(rsched_ui::router());
+    if let Err(e) = seed_admin_if_empty(&state).await {
+        warn!(error = %e, "failed to seed initial admin user");
+    }
+    let app = api_router(state.clone()).merge(rsched_ui::router());
     let listener = TcpListener::bind(bind)
         .await
         .with_context(|| format!("bind {bind}"))?;

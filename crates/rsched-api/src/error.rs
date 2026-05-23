@@ -15,9 +15,12 @@ pub enum ApiError {
     /// Resource not found.
     #[error("not found: {0}")]
     NotFound(String),
-    /// Unauthorized.
+    /// Unauthorized (no credentials or invalid).
     #[error("unauthorized")]
     Unauthorized,
+    /// Authenticated but lacks required role.
+    #[error("forbidden")]
+    Forbidden,
     /// Backend storage failure.
     #[error("store: {0}")]
     Store(#[from] rsched_store::StoreError),
@@ -35,6 +38,7 @@ impl IntoResponse for ApiError {
             ApiError::Validation(m) => (StatusCode::BAD_REQUEST, m.clone()),
             ApiError::NotFound(m) => (StatusCode::NOT_FOUND, m.clone()),
             ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized".into()),
+            ApiError::Forbidden => (StatusCode::FORBIDDEN, "forbidden".into()),
             ApiError::Store(e) => match e {
                 rsched_store::StoreError::NotFound(m) => (StatusCode::NOT_FOUND, m.clone()),
                 _ => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),

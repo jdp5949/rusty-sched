@@ -13,8 +13,10 @@ rsched-store = { path = "../rsched-store" }
 rsched-scheduler = { path = "../rsched-scheduler" }
 async-trait = { workspace = true }
 axum = { workspace = true }
+base64 = { workspace = true }
 bcrypt = { workspace = true }
 chrono = { workspace = true }
+rand = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }

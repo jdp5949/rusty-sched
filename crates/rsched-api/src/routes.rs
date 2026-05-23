@@ -18,9 +18,30 @@ use std::time::Duration;
 
 /// Build the public router.
 pub fn router(state: AppState) -> Router {
+    use crate::auth;
     Router::new()
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
+        // Auth (unauthenticated except `me`).
+        .route("/api/v1/auth/login", post(auth::login))
+        .route("/api/v1/auth/logout", post(auth::logout))
+        .route("/api/v1/auth/me", get(auth::me))
+        .route(
+            "/api/v1/auth/api-keys",
+            get(auth::list_api_keys).post(auth::create_api_key),
+        )
+        .route(
+            "/api/v1/auth/api-keys/:id",
+            axum::routing::delete(auth::delete_api_key),
+        )
+        // User mgmt (admin only).
+        .route(
+            "/api/v1/users",
+            get(auth::list_users).post(auth::create_user),
+        )
+        // Audit (admin only).
+        .route("/api/v1/audit", get(auth::list_audit))
+        // Core resources.
         .route("/api/v1/jobs", get(list_jobs).post(create_job))
         .route(
             "/api/v1/jobs/:id",
@@ -35,6 +56,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/runs/:id/logs", get(get_run_logs))
         .route("/api/v1/runs/:id/logs/ws", get(ws_run_logs))
         .route("/api/v1/stats/jobs/:id", get(job_stats))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth::middleware,
+        ))
         .with_state(state)
 }
 

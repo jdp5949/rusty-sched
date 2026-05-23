@@ -56,6 +56,8 @@ define_id!(/// Identifier for an agent.
     AgentId);
 define_id!(/// Identifier for a user.
     UserId);
+define_id!(/// Identifier for an API key.
+    ApiKeyId);
 
 #[cfg(test)]
 mod tests {

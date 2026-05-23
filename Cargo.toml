@@ -61,6 +61,8 @@ bcrypt = "0.16"
 hmac = "0.12"
 sha2 = "0.10"
 rcgen = "0.13"
+rand = "0.8"
+base64 = "0.22"
 
 # Errors / tracing
 thiserror = "2"
