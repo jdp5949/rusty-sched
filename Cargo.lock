@@ -2059,8 +2059,10 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum 0.7.9",
+ "base64",
  "bcrypt",
  "chrono",
+ "rand 0.8.6",
  "rsched-core",
  "rsched-scheduler",
  "rsched-store",
