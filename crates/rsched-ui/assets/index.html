@@ -5,6 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>rusty-sched</title>
 <script src="https://cdn.tailwindcss.com"></script>
+<script>
+  // Tailwind dark mode via `class` strategy. Pre-set the class before the body
+  // paints so we never flash a light theme on dark-preferring users.
+  tailwind.config = { darkMode: 'class' };
+  (function () {
+    var saved = localStorage.getItem('rsched_theme');
+    var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (saved === 'dark' || (!saved && prefersDark)) {
+      document.documentElement.classList.add('dark');
+    }
+  })();
+</script>
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -32,7 +44,7 @@
   .cm-s-default .cm-punctuation { color: #94a3b8; }
 </style>
 </head>
-<body class="bg-slate-50 text-slate-900">
+<body class="bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 transition-colors">
 <div id="root"></div>
 
 <script type="text/babel">
@@ -93,12 +105,12 @@ function NewJobForm({ onCreated }) {
   }
 
   return (
-    <form onSubmit={submit} className="bg-white border border-slate-200 rounded-xl p-5 mb-6 shadow-sm">
+    <form onSubmit={submit} className="bg-white border border-slate-200 rounded-xl p-5 mb-6 shadow-sm dark:bg-slate-900 dark:border-slate-800">
       <h2 className="font-semibold mb-3">Create job</h2>
       <div className="grid md:grid-cols-3 gap-3">
-        <input className="border border-slate-300 rounded px-3 py-2 text-sm" placeholder="name" value={name} onChange={e=>setName(e.target.value)} required />
-        <input className="border border-slate-300 rounded px-3 py-2 text-sm mono" placeholder="cron expression" value={cron} onChange={e=>setCron(e.target.value)} required />
-        <input className="border border-slate-300 rounded px-3 py-2 text-sm mono" placeholder="command" value={cmd} onChange={e=>setCmd(e.target.value)} required />
+        <input className="border border-slate-300 rounded px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-700" placeholder="name" value={name} onChange={e=>setName(e.target.value)} required />
+        <input className="border border-slate-300 rounded px-3 py-2 text-sm mono dark:bg-slate-800 dark:border-slate-700" placeholder="cron expression" value={cron} onChange={e=>setCron(e.target.value)} required />
+        <input className="border border-slate-300 rounded px-3 py-2 text-sm mono dark:bg-slate-800 dark:border-slate-700" placeholder="command" value={cmd} onChange={e=>setCmd(e.target.value)} required />
       </div>
       <button disabled={busy} className="mt-3 bg-orange-600 text-white text-sm px-4 py-2 rounded hover:bg-orange-700 disabled:opacity-50">
         {busy ? "creating…" : "Create"}
@@ -256,7 +268,7 @@ function JobRow({ job, onChange }) {
           onSaved={onChange}
         />
       )}
-    <div className="bg-white border border-slate-200 rounded-xl p-4 mb-3 shadow-sm">
+    <div className="bg-white border border-slate-200 rounded-xl p-4 mb-3 shadow-sm dark:bg-slate-900 dark:border-slate-800">
       <div className="flex items-center justify-between">
         <div>
           <div className="font-semibold">{job.name} {job.paused && <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded ml-2">paused</span>}</div>
@@ -423,8 +435,8 @@ function Login({ onLoggedIn }) {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-100">
-      <form onSubmit={submit} className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm w-full max-w-sm">
+    <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-950">
+      <form onSubmit={submit} className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm w-full max-w-sm dark:bg-slate-900 dark:border-slate-800">
         <div className="flex items-center gap-2 mb-4">
           <span className="text-2xl">⚙️</span>
           <h1 className="text-xl font-bold">rusty-sched</h1>
@@ -446,29 +458,259 @@ function Login({ onLoggedIn }) {
   );
 }
 
-function HeaderWithUser({ me, onLogout }) {
+function ThemeToggle() {
+  const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'));
+  function toggle() {
+    const next = !dark;
+    setDark(next);
+    if (next) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('rsched_theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('rsched_theme', 'light');
+    }
+  }
   return (
-    <header className="bg-gradient-to-r from-orange-500 to-red-600 text-white px-6 py-4 shadow">
-      <div className="max-w-6xl mx-auto flex items-center justify-between">
+    <button onClick={toggle} title="toggle theme" className="text-orange-100 hover:text-white">
+      {dark ? '☀' : '☾'}
+    </button>
+  );
+}
+
+function HeaderWithUser({ me, onLogout, tab, setTab }) {
+  const tabs = [
+    { id: 'jobs', label: 'Jobs' },
+    { id: 'apikeys', label: 'API keys' },
+  ];
+  if (me.role === 'admin') {
+    tabs.push({ id: 'users', label: 'Users' });
+    tabs.push({ id: 'audit', label: 'Audit' });
+  }
+  return (
+    <header className="bg-gradient-to-r from-orange-500 to-red-600 text-white shadow">
+      <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-2xl">⚙️</span>
           <h1 className="text-xl font-bold">rusty-sched</h1>
-          <span className="text-orange-200 text-sm">job scheduler</span>
+          <span className="text-orange-200 text-sm hidden md:inline">job scheduler</span>
         </div>
         <div className="flex items-center gap-4 text-sm">
-          <span>{me.username} <span className="text-orange-200">({me.role})</span></span>
-          <a href="https://github.com/jdp5949/rusty-sched" className="hover:underline">★ GitHub</a>
+          <ThemeToggle />
+          <span className="hidden md:inline">{me.username} <span className="text-orange-200">({me.role})</span></span>
+          <a href="https://github.com/jdp5949/rusty-sched" className="hover:underline hidden md:inline">★ GitHub</a>
           <button onClick={onLogout} className="text-xs text-orange-100 hover:text-white underline">logout</button>
         </div>
       </div>
+      <nav className="max-w-6xl mx-auto px-6 flex gap-1 text-sm">
+        {tabs.map(t => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`px-3 py-2 rounded-t ${tab === t.id ? 'bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100' : 'text-white/80 hover:text-white'}`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
     </header>
   );
 }
 
-function App() {
-  const [me, setMe] = useState(undefined);   // undefined = checking, null = logged out, obj = logged in
-  const [jobs, setJobs] = useState(null);
+function ApiKeysPage() {
+  const [keys, setKeys] = useState([]);
+  const [name, setName] = useState("");
+  const [created, setCreated] = useState(null);
   const [err, setErr] = useState(null);
+  async function load() {
+    try { setKeys(await api("GET", "/auth/api-keys")); } catch (e) { setErr(e.message); }
+  }
+  useEffect(() => { load(); }, []);
+  async function create(e) {
+    e.preventDefault();
+    setErr(null);
+    try {
+      const k = await api("POST", "/auth/api-keys", { name });
+      setCreated(k);
+      setName("");
+      load();
+    } catch (e) { setErr(e.message); }
+  }
+  async function del(id) {
+    if (!confirm('Delete this key? Sessions using it will stop working immediately.')) return;
+    try { await api("DELETE", `/auth/api-keys/${id}`); load(); } catch (e) { setErr(e.message); }
+  }
+  return (
+    <div>
+      <form onSubmit={create} className="bg-white border border-slate-200 rounded-xl p-5 mb-6 shadow-sm dark:bg-slate-900 dark:border-slate-800">
+        <h2 className="font-semibold mb-3">Create API key</h2>
+        <div className="grid md:grid-cols-3 gap-3">
+          <input className="border border-slate-300 rounded px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-700" placeholder="name (e.g. ci, monitoring)" value={name} onChange={e=>setName(e.target.value)} required />
+          <button className="bg-orange-600 text-white text-sm px-4 py-2 rounded hover:bg-orange-700">Create</button>
+        </div>
+        {created && (
+          <div className="mt-3 p-3 bg-amber-50 border border-amber-200 text-amber-900 rounded text-sm dark:bg-amber-900/30 dark:border-amber-800 dark:text-amber-100">
+            <div className="font-semibold mb-1">Token created — copy it now, you won't see it again:</div>
+            <div className="mono break-all bg-white dark:bg-slate-950 p-2 rounded">{created.token}</div>
+            <button className="text-xs mt-2 underline" onClick={() => setCreated(null)}>I've copied it, dismiss</button>
+          </div>
+        )}
+        {err && <div className="mt-2 text-red-600 text-sm">{err}</div>}
+      </form>
+      <table className="w-full text-sm bg-white border border-slate-200 rounded shadow-sm dark:bg-slate-900 dark:border-slate-800">
+        <thead className="text-xs uppercase text-slate-500 dark:text-slate-400">
+          <tr><th className="text-left p-3">Name</th><th className="text-left p-3">Created</th><th className="text-left p-3">Last used</th><th className="p-3"></th></tr>
+        </thead>
+        <tbody>
+          {keys.length === 0 && <tr><td colSpan="4" className="p-3 text-slate-500">No keys yet.</td></tr>}
+          {keys.map(k => (
+            <tr key={k.id} className="border-t border-slate-100 dark:border-slate-800">
+              <td className="p-3">{k.name}</td>
+              <td className="p-3 mono text-xs">{k.created_at}</td>
+              <td className="p-3 mono text-xs">{k.last_used_at || <span className="text-slate-400">never</span>}</td>
+              <td className="p-3 text-right"><button onClick={() => del(k.id)} className="text-red-600 hover:underline text-xs">delete</button></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function UsersPage() {
+  const [users, setUsers] = useState([]);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [role, setRole] = useState("operator");
+  const [err, setErr] = useState(null);
+  async function load() {
+    try { setUsers(await api("GET", "/users")); } catch (e) { setErr(e.message); }
+  }
+  useEffect(() => { load(); }, []);
+  async function create(e) {
+    e.preventDefault();
+    setErr(null);
+    try {
+      await api("POST", "/users", { username, password, role });
+      setUsername(""); setPassword(""); load();
+    } catch (e) { setErr(e.message); }
+  }
+  return (
+    <div>
+      <form onSubmit={create} className="bg-white border border-slate-200 rounded-xl p-5 mb-6 shadow-sm dark:bg-slate-900 dark:border-slate-800">
+        <h2 className="font-semibold mb-3">Create user</h2>
+        <div className="grid md:grid-cols-4 gap-3">
+          <input className="border border-slate-300 rounded px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-700" placeholder="username" value={username} onChange={e=>setUsername(e.target.value)} required />
+          <input type="password" className="border border-slate-300 rounded px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-700" placeholder="password (≥8 chars)" value={password} onChange={e=>setPassword(e.target.value)} required />
+          <select className="border border-slate-300 rounded px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-700" value={role} onChange={e=>setRole(e.target.value)}>
+            <option value="admin">admin</option>
+            <option value="operator">operator</option>
+            <option value="viewer">viewer</option>
+          </select>
+          <button className="bg-orange-600 text-white text-sm px-4 py-2 rounded hover:bg-orange-700">Create</button>
+        </div>
+        {err && <div className="mt-2 text-red-600 text-sm">{err}</div>}
+      </form>
+      <table className="w-full text-sm bg-white border border-slate-200 rounded shadow-sm dark:bg-slate-900 dark:border-slate-800">
+        <thead className="text-xs uppercase text-slate-500 dark:text-slate-400">
+          <tr><th className="text-left p-3">Username</th><th className="text-left p-3">Role</th><th className="text-left p-3">Status</th></tr>
+        </thead>
+        <tbody>
+          {users.map(u => (
+            <tr key={u.id} className="border-t border-slate-100 dark:border-slate-800">
+              <td className="p-3 mono">{u.username}</td>
+              <td className="p-3">{u.role}</td>
+              <td className="p-3">{u.disabled ? <span className="text-red-600">disabled</span> : <span className="text-green-600">active</span>}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function AuditPage() {
+  const [entries, setEntries] = useState([]);
+  const [err, setErr] = useState(null);
+  async function load() {
+    try { setEntries(await api("GET", "/audit")); } catch (e) { setErr(e.message); }
+  }
+  useEffect(() => { load(); const id = setInterval(load, 10000); return () => clearInterval(id); }, []);
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-3">
+        <h2 className="font-semibold">Audit log <span className="text-slate-500 text-sm">({entries.length})</span></h2>
+        <button onClick={load} className="text-xs text-slate-600 hover:text-slate-900 dark:text-slate-300">↻ refresh</button>
+      </div>
+      {err && <div className="text-red-600 text-sm">{err}</div>}
+      <table className="w-full text-sm bg-white border border-slate-200 rounded shadow-sm dark:bg-slate-900 dark:border-slate-800">
+        <thead className="text-xs uppercase text-slate-500 dark:text-slate-400">
+          <tr>
+            <th className="text-left p-3">Time</th>
+            <th className="text-left p-3">User</th>
+            <th className="text-left p-3">Action</th>
+            <th className="text-left p-3">Target</th>
+            <th className="text-left p-3">Payload</th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.length === 0 && <tr><td colSpan="5" className="p-3 text-slate-500">No audit entries.</td></tr>}
+          {entries.map(e => (
+            <tr key={e.id} className="border-t border-slate-100 dark:border-slate-800">
+              <td className="p-3 mono text-xs whitespace-nowrap">{e.ts}</td>
+              <td className="p-3 mono text-xs">{e.user_id || <span className="text-slate-400">system</span>}</td>
+              <td className="p-3">{e.action}</td>
+              <td className="p-3 mono text-xs">{e.target_type}{e.target_id ? `:${e.target_id.slice(0, 8)}…` : ''}</td>
+              <td className="p-3 mono text-xs">{e.payload_json || ''}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function JobsPage() {
+  const [jobs, setJobs] = useState(null);
+  const [filter, setFilter] = useState("");
+  const [err, setErr] = useState(null);
+
+  async function load() {
+    try {
+      setJobs(await api("GET", "/jobs"));
+      setErr(null);
+    } catch (e) { setErr(e.message); }
+  }
+  useEffect(() => { load(); const id = setInterval(load, 5000); return () => clearInterval(id); }, []);
+
+  const filtered = jobs && filter
+    ? jobs.filter(j => j.name.toLowerCase().includes(filter.toLowerCase()) || j.cmd.toLowerCase().includes(filter.toLowerCase()))
+    : jobs;
+
+  return (
+    <>
+      <NewJobForm onCreated={load} />
+      <div className="flex items-center justify-between mb-3 gap-3">
+        <h2 className="font-semibold whitespace-nowrap">Jobs {jobs && <span className="text-slate-500 text-sm">({filtered.length}{filter && jobs.length !== filtered.length ? `/${jobs.length}` : ''})</span>}</h2>
+        <input
+          className="flex-1 max-w-xs border border-slate-300 rounded px-3 py-1 text-sm dark:bg-slate-800 dark:border-slate-700"
+          placeholder="filter by name or command…"
+          value={filter}
+          onChange={e=>setFilter(e.target.value)}
+        />
+        <button onClick={load} className="text-xs text-slate-600 hover:text-slate-900 dark:text-slate-300">↻ refresh</button>
+      </div>
+      {err && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded text-sm mb-3 dark:bg-red-900/30 dark:border-red-800 dark:text-red-200">{err}</div>}
+      {jobs === null && <div className="text-slate-500 text-sm">loading…</div>}
+      {jobs && jobs.length === 0 && <div className="text-slate-500 text-sm">No jobs yet. Create one above.</div>}
+      {filtered && filtered.map(j => <JobRow key={j.id} job={j} onChange={load} />)}
+    </>
+  );
+}
+
+function App() {
+  const [me, setMe] = useState(undefined);
+  const [tab, setTab] = useState('jobs');
 
   async function checkAuth() {
     try {
@@ -484,26 +726,9 @@ function App() {
   async function logout() {
     await fetch(API + "/auth/logout", { method: "POST", credentials: "same-origin" });
     setMe(null);
-    setJobs(null);
-  }
-
-  async function load() {
-    try {
-      setJobs(await api("GET", "/jobs"));
-      setErr(null);
-    } catch (e) {
-      if (e.message.startsWith("401")) { setMe(null); return; }
-      setErr(e.message);
-    }
   }
 
   useEffect(() => { checkAuth(); }, []);
-  useEffect(() => {
-    if (!me) return;
-    load();
-    const id = setInterval(load, 5000);
-    return () => clearInterval(id);
-  }, [me]);
 
   if (me === undefined) {
     return <div className="min-h-screen flex items-center justify-center text-slate-500">loading…</div>;
@@ -514,17 +739,12 @@ function App() {
 
   return (
     <>
-      <HeaderWithUser me={me} onLogout={logout} />
+      <HeaderWithUser me={me} onLogout={logout} tab={tab} setTab={setTab} />
       <div className="max-w-6xl mx-auto px-6 py-6">
-        <NewJobForm onCreated={load} />
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="font-semibold">Jobs {jobs && <span className="text-slate-500 text-sm">({jobs.length})</span>}</h2>
-          <button onClick={load} className="text-xs text-slate-600 hover:text-slate-900">↻ refresh</button>
-        </div>
-        {err && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded text-sm mb-3">{err}</div>}
-        {jobs === null && <div className="text-slate-500 text-sm">loading…</div>}
-        {jobs && jobs.length === 0 && <div className="text-slate-500 text-sm">No jobs yet. Create one above.</div>}
-        {jobs && jobs.map(j => <JobRow key={j.id} job={j} onChange={load} />)}
+        {tab === 'jobs' && <JobsPage />}
+        {tab === 'apikeys' && <ApiKeysPage />}
+        {tab === 'users' && me.role === 'admin' && <UsersPage />}
+        {tab === 'audit' && me.role === 'admin' && <AuditPage />}
       </div>
     </>
   );
