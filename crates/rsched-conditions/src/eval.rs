@@ -2,8 +2,16 @@
 
 use crate::expr::{CmpOp, Expr};
 use rsched_core::RunState;
+use std::time::Duration;
 
 /// Provides upstream job state for condition evaluation.
+///
+/// The "within" variants take a look-back window (Autosys `, HH.MM`); the
+/// non-windowed variants ask about the most recent run.
+///
+/// Implementors only need to implement the basic accessors; the look-back
+/// variants default to ignoring the window (returning the same answer as the
+/// non-windowed accessor) which keeps existing tests / mocks working.
 pub trait UpstreamState {
     /// Returns the last run state for a job, or None if no runs exist.
     fn last_run_state(&self, job_name: &str) -> Option<RunState>;
@@ -11,6 +19,32 @@ pub trait UpstreamState {
     fn last_exit_code(&self, job_name: &str) -> Option<i32>;
     /// Returns true if the job is currently running.
     fn is_running(&self, job_name: &str) -> bool;
+
+    /// Returns `Some(true)` if at least one run in the look-back window succeeded.
+    /// Default impl falls back to `last_run_state`, ignoring the window.
+    fn success_within(&self, job_name: &str, _within: Duration) -> Option<bool> {
+        Some(self.last_run_state(job_name)? == RunState::Success)
+    }
+    /// Returns `Some(true)` if at least one run in the look-back window failed.
+    fn failure_within(&self, job_name: &str, _within: Duration) -> Option<bool> {
+        Some(self.last_run_state(job_name)? == RunState::Failed)
+    }
+    /// Returns `Some(true)` if at least one run in the look-back window is terminal.
+    fn done_within(&self, job_name: &str, _within: Duration) -> Option<bool> {
+        Some(self.last_run_state(job_name)?.is_terminal())
+    }
+    /// Count of all runs (any terminal state + running) within window. None = unknown job.
+    fn count_runs_within(&self, job_name: &str, _within: Duration) -> Option<u32> {
+        self.last_run_state(job_name).map(|_| 1)
+    }
+    /// Count of successful runs within window.
+    fn count_successes_within(&self, job_name: &str, _within: Duration) -> Option<u32> {
+        Some(u32::from(self.last_run_state(job_name)? == RunState::Success))
+    }
+    /// Count of failed runs within window.
+    fn count_failures_within(&self, job_name: &str, _within: Duration) -> Option<u32> {
+        Some(u32::from(self.last_run_state(job_name)? == RunState::Failed))
+    }
 }
 
 /// Evaluate an expression against upstream state.
@@ -19,14 +53,38 @@ pub trait UpstreamState {
 /// `None` if any referenced job has no history (unknown state).
 pub fn evaluate(expr: &Expr, ctx: &dyn UpstreamState) -> Option<bool> {
     match expr {
-        Expr::Success(j) => Some(ctx.last_run_state(j)? == RunState::Success),
-        Expr::Failure(j) => Some(ctx.last_run_state(j)? == RunState::Failed),
-        Expr::Done(j) => Some(ctx.last_run_state(j)?.is_terminal()),
+        Expr::Success(j, lb) => match lb {
+            Some(d) => ctx.success_within(j, *d),
+            None => Some(ctx.last_run_state(j)? == RunState::Success),
+        },
+        Expr::Failure(j, lb) => match lb {
+            Some(d) => ctx.failure_within(j, *d),
+            None => Some(ctx.last_run_state(j)? == RunState::Failed),
+        },
+        Expr::Done(j, lb) => match lb {
+            Some(d) => ctx.done_within(j, *d),
+            None => Some(ctx.last_run_state(j)?.is_terminal()),
+        },
         Expr::Running(j) => Some(ctx.is_running(j)),
         Expr::NotRunning(j) => Some(!ctx.is_running(j)),
         Expr::ExitCode(j, op, expected) => {
             let code = ctx.last_exit_code(j)?;
             Some(apply_op(op, code, *expected))
+        }
+        Expr::NumRun(j, op, expected, lb) => {
+            let window = lb.unwrap_or(Duration::from_secs(u64::MAX / 2));
+            let n = ctx.count_runs_within(j, window)? as i32;
+            Some(apply_op(op, n, *expected))
+        }
+        Expr::NumSuc(j, op, expected, lb) => {
+            let window = lb.unwrap_or(Duration::from_secs(u64::MAX / 2));
+            let n = ctx.count_successes_within(j, window)? as i32;
+            Some(apply_op(op, n, *expected))
+        }
+        Expr::NumFail(j, op, expected, lb) => {
+            let window = lb.unwrap_or(Duration::from_secs(u64::MAX / 2));
+            let n = ctx.count_failures_within(j, window)? as i32;
+            Some(apply_op(op, n, *expected))
         }
         Expr::Value(_) => None, // deferred — global var lookup not yet implemented
         Expr::And(a, b) => {
@@ -63,6 +121,20 @@ mod tests {
         state: Option<RunState>,
         exit_code: Option<i32>,
         running: bool,
+        suc_count: u32,
+        fail_count: u32,
+    }
+
+    impl FakeCtx {
+        fn new(state: Option<RunState>, exit_code: Option<i32>, running: bool) -> Self {
+            Self {
+                state,
+                exit_code,
+                running,
+                suc_count: 0,
+                fail_count: 0,
+            }
+        }
     }
 
     impl UpstreamState for FakeCtx {
@@ -75,14 +147,19 @@ mod tests {
         fn is_running(&self, _job_name: &str) -> bool {
             self.running
         }
+        fn count_successes_within(&self, _job_name: &str, _within: Duration) -> Option<u32> {
+            Some(self.suc_count)
+        }
+        fn count_failures_within(&self, _job_name: &str, _within: Duration) -> Option<u32> {
+            Some(self.fail_count)
+        }
+        fn count_runs_within(&self, _job_name: &str, _within: Duration) -> Option<u32> {
+            Some(self.suc_count + self.fail_count)
+        }
     }
 
     fn ctx(state: RunState, code: i32) -> FakeCtx {
-        FakeCtx {
-            state: Some(state),
-            exit_code: Some(code),
-            running: state == RunState::Running,
-        }
+        FakeCtx::new(Some(state), Some(code), state == RunState::Running)
     }
 
     #[test]
@@ -118,11 +195,7 @@ mod tests {
     #[test]
     fn running_true() {
         let e = parse("running(j)").unwrap();
-        let c = FakeCtx {
-            state: Some(RunState::Running),
-            exit_code: None,
-            running: true,
-        };
+        let c = FakeCtx::new(Some(RunState::Running), None, true);
         assert_eq!(evaluate(&e, &c), Some(true));
     }
 
@@ -159,6 +232,37 @@ mod tests {
     }
 
     #[test]
+    fn lookback_success_falls_back_to_last_state() {
+        // Default trait impl ignores window, so behavior should match unwindowed.
+        let e = parse("success(j, 01.00)").unwrap();
+        assert_eq!(evaluate(&e, &ctx(RunState::Success, 0)), Some(true));
+        assert_eq!(evaluate(&e, &ctx(RunState::Failed, 1)), Some(false));
+    }
+
+    #[test]
+    fn numsuc_compares_against_count() {
+        let mut c = FakeCtx::new(Some(RunState::Success), Some(0), false);
+        c.suc_count = 3;
+        c.fail_count = 1;
+        assert_eq!(
+            evaluate(&parse("numsuc(j, 24.00) >= 3").unwrap(), &c),
+            Some(true)
+        );
+        assert_eq!(
+            evaluate(&parse("numsuc(j, 24.00) > 3").unwrap(), &c),
+            Some(false)
+        );
+        assert_eq!(
+            evaluate(&parse("numfail(j, 24.00) = 1").unwrap(), &c),
+            Some(true)
+        );
+        assert_eq!(
+            evaluate(&parse("numrun(j, 24.00) = 4").unwrap(), &c),
+            Some(true)
+        );
+    }
+
+    #[test]
     fn and_both_true() {
         let e = parse("success(j) and done(j)").unwrap();
         assert_eq!(evaluate(&e, &ctx(RunState::Success, 0)), Some(true));
@@ -180,22 +284,14 @@ mod tests {
     #[test]
     fn unknown_job_returns_none() {
         let e = parse("success(j)").unwrap();
-        let c = FakeCtx {
-            state: None,
-            exit_code: None,
-            running: false,
-        };
+        let c = FakeCtx::new(None, None, false);
         assert_eq!(evaluate(&e, &c), None);
     }
 
     #[test]
     fn value_returns_none() {
         let e = parse("value(global.x)").unwrap();
-        let c = FakeCtx {
-            state: None,
-            exit_code: None,
-            running: false,
-        };
+        let c = FakeCtx::new(None, None, false);
         assert_eq!(evaluate(&e, &c), None);
     }
 }
