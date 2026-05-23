@@ -481,6 +481,8 @@ function ThemeToggle() {
 function HeaderWithUser({ me, onLogout, tab, setTab }) {
   const tabs = [
     { id: 'jobs', label: 'Jobs' },
+    { id: 'resources', label: 'Resources' },
+    { id: 'globals', label: 'Globals' },
     { id: 'apikeys', label: 'API keys' },
   ];
   if (me.role === 'admin') {
@@ -708,6 +710,142 @@ function JobsPage() {
   );
 }
 
+function ResourcesPage() {
+  const [rows, setRows] = useState([]);
+  const [name, setName] = useState("");
+  const [capacity, setCapacity] = useState("");
+  const [description, setDescription] = useState("");
+  const [err, setErr] = useState(null);
+
+  async function load() {
+    try { setRows(await api("GET", "/resources")); } catch (e) { setErr(e.message); }
+  }
+  useEffect(() => { load(); const id = setInterval(load, 4000); return () => clearInterval(id); }, []);
+
+  async function create(e) {
+    e.preventDefault();
+    setErr(null);
+    try {
+      await api("POST", "/resources", { name, capacity: parseInt(capacity, 10), description: description || null });
+      setName(""); setCapacity(""); setDescription("");
+      load();
+    } catch (e) { setErr(e.message); }
+  }
+
+  async function del(n) {
+    if (!confirm(`Delete resource "${n}"? Any holds will be released.`)) return;
+    try { await api("DELETE", `/resources/${encodeURIComponent(n)}`); load(); } catch (e) { setErr(e.message); }
+  }
+
+  return (
+    <div>
+      <form onSubmit={create} className="bg-white border border-slate-200 rounded-xl p-5 mb-6 shadow-sm dark:bg-slate-900 dark:border-slate-800">
+        <h2 className="font-semibold mb-3">Create virtual resource</h2>
+        <div className="grid md:grid-cols-4 gap-3">
+          <input className="border border-slate-300 rounded px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-700" placeholder="name (e.g. db.connections)" value={name} onChange={e=>setName(e.target.value)} required />
+          <input type="number" min="1" className="border border-slate-300 rounded px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-700" placeholder="capacity" value={capacity} onChange={e=>setCapacity(e.target.value)} required />
+          <input className="border border-slate-300 rounded px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-700" placeholder="description (optional)" value={description} onChange={e=>setDescription(e.target.value)} />
+          <button className="bg-orange-600 text-white text-sm px-4 py-2 rounded hover:bg-orange-700">Create</button>
+        </div>
+        {err && <div className="mt-2 text-red-600 text-sm">{err}</div>}
+      </form>
+      <table className="w-full text-sm bg-white border border-slate-200 rounded shadow-sm dark:bg-slate-900 dark:border-slate-800">
+        <thead className="text-xs uppercase text-slate-500 dark:text-slate-400">
+          <tr>
+            <th className="text-left p-3">Name</th>
+            <th className="text-left p-3">Capacity</th>
+            <th className="text-left p-3">Available</th>
+            <th className="text-left p-3">In use</th>
+            <th className="text-left p-3">Description</th>
+            <th className="p-3"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && <tr><td colSpan="6" className="p-3 text-slate-500">No resources yet.</td></tr>}
+          {rows.map(r => {
+            const inUse = r.capacity - r.available;
+            const pct = r.capacity > 0 ? Math.round((inUse / r.capacity) * 100) : 0;
+            return (
+              <tr key={r.id} className="border-t border-slate-100 dark:border-slate-800">
+                <td className="p-3 mono">{r.name}</td>
+                <td className="p-3">{r.capacity}</td>
+                <td className="p-3 text-green-600">{r.available}</td>
+                <td className="p-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-24 h-2 bg-slate-200 dark:bg-slate-800 rounded">
+                      <div className="h-2 bg-orange-500 rounded" style={{width: `${pct}%`}}></div>
+                    </div>
+                    <span className="text-xs">{inUse}/{r.capacity}</span>
+                  </div>
+                </td>
+                <td className="p-3 text-slate-500">{r.description || ''}</td>
+                <td className="p-3 text-right"><button onClick={() => del(r.name)} className="text-red-600 hover:underline text-xs">delete</button></td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function GlobalsPage() {
+  const [rows, setRows] = useState([]);
+  const [name, setName] = useState("");
+  const [value, setValue] = useState("");
+  const [err, setErr] = useState(null);
+
+  async function load() {
+    try { setRows(await api("GET", "/globals")); } catch (e) { setErr(e.message); }
+  }
+  useEffect(() => { load(); const id = setInterval(load, 5000); return () => clearInterval(id); }, []);
+
+  async function setVar(e) {
+    e.preventDefault();
+    setErr(null);
+    try {
+      await api("POST", "/globals", { name, value });
+      setName(""); setValue(""); load();
+    } catch (e) { setErr(e.message); }
+  }
+
+  async function del(n) {
+    if (!confirm(`Delete global "${n}"?`)) return;
+    try { await api("DELETE", `/globals/${encodeURIComponent(n)}`); load(); } catch (e) { setErr(e.message); }
+  }
+
+  return (
+    <div>
+      <form onSubmit={setVar} className="bg-white border border-slate-200 rounded-xl p-5 mb-6 shadow-sm dark:bg-slate-900 dark:border-slate-800">
+        <h2 className="font-semibold mb-3">Set global variable</h2>
+        <p className="text-xs text-slate-500 mb-3">Used by Autosys-style <span className="mono">value(name)</span> in condition expressions. Truthy values: <span className="mono">y / yes / true / 1</span>.</p>
+        <div className="grid md:grid-cols-3 gap-3">
+          <input className="border border-slate-300 rounded px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-700" placeholder="name (e.g. IS_RUN_DAY)" value={name} onChange={e=>setName(e.target.value)} required />
+          <input className="border border-slate-300 rounded px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-700" placeholder="value" value={value} onChange={e=>setValue(e.target.value)} required />
+          <button className="bg-orange-600 text-white text-sm px-4 py-2 rounded hover:bg-orange-700">Set</button>
+        </div>
+        {err && <div className="mt-2 text-red-600 text-sm">{err}</div>}
+      </form>
+      <table className="w-full text-sm bg-white border border-slate-200 rounded shadow-sm dark:bg-slate-900 dark:border-slate-800">
+        <thead className="text-xs uppercase text-slate-500 dark:text-slate-400">
+          <tr><th className="text-left p-3">Name</th><th className="text-left p-3">Value</th><th className="text-left p-3">Updated</th><th className="p-3"></th></tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && <tr><td colSpan="4" className="p-3 text-slate-500">No globals set.</td></tr>}
+          {rows.map(g => (
+            <tr key={g.name} className="border-t border-slate-100 dark:border-slate-800">
+              <td className="p-3 mono">{g.name}</td>
+              <td className="p-3 mono">{g.value}</td>
+              <td className="p-3 mono text-xs">{g.updated_at}</td>
+              <td className="p-3 text-right"><button onClick={() => del(g.name)} className="text-red-600 hover:underline text-xs">delete</button></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function App() {
   const [me, setMe] = useState(undefined);
   const [tab, setTab] = useState('jobs');
@@ -742,6 +880,8 @@ function App() {
       <HeaderWithUser me={me} onLogout={logout} tab={tab} setTab={setTab} />
       <div className="max-w-6xl mx-auto px-6 py-6">
         {tab === 'jobs' && <JobsPage />}
+        {tab === 'resources' && <ResourcesPage />}
+        {tab === 'globals' && <GlobalsPage />}
         {tab === 'apikeys' && <ApiKeysPage />}
         {tab === 'users' && me.role === 'admin' && <UsersPage />}
         {tab === 'audit' && me.role === 'admin' && <AuditPage />}

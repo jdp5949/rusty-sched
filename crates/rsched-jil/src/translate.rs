@@ -3,8 +3,8 @@
 use crate::spec::{JilJobType, JobSpec};
 use chrono::NaiveTime;
 use rsched_core::{
-    AlertConfig, AlertEvent, BackoffKind, ExitCodePolicy, Job, JobBuilder, RetryPolicy, Target,
-    Trigger,
+    AlertConfig, AlertEvent, BackoffKind, ExitCodePolicy, Job, JobBuilder, ResourceClaim,
+    RetryPolicy, Target, Trigger,
 };
 
 /// Result of translating a [`JobSpec`] into a [`Job`].
@@ -94,6 +94,8 @@ impl JobSpec {
             .retry(retry)
             .timeout(timeout_secs);
 
+        let resource_claims = parse_resource_claims(&self.resources, &mut warnings);
+
         // Set alerts + extras by mutating after build to avoid touching builder API surface.
         let job = {
             let mut j = builder.build()?;
@@ -101,6 +103,7 @@ impl JobSpec {
             j.exit_policy = exit_policy;
             j.must_start_times = must_start_times;
             j.must_complete_times = must_complete_times;
+            j.resource_claims = resource_claims;
             j
         };
 
@@ -208,6 +211,44 @@ fn translate_days(days: &str) -> String {
     } else {
         dow.join(",")
     }
+}
+
+/// Parse Autosys-style `resources` attribute into `Vec<ResourceClaim>`.
+///
+/// Accepts comma-separated entries where each entry is either `name` (1 unit)
+/// or `name(units)`. Whitespace around tokens is ignored. Malformed entries
+/// emit a warning and are skipped.
+fn parse_resource_claims(raw: &Option<String>, warnings: &mut Vec<String>) -> Vec<ResourceClaim> {
+    let Some(s) = raw else { return Vec::new() };
+    let mut out = Vec::new();
+    for entry in s.split(',') {
+        let entry = entry.trim().trim_matches('"');
+        if entry.is_empty() {
+            continue;
+        }
+        let (name, units) = if let Some((n, rest)) = entry.split_once('(') {
+            let n = n.trim();
+            let rest = rest.trim_end_matches(')').trim();
+            match rest.parse::<u32>() {
+                Ok(u) if u > 0 => (n.to_string(), u),
+                _ => {
+                    warnings.push(format!("resources: bad units in {entry:?}"));
+                    continue;
+                }
+            }
+        } else {
+            (entry.to_string(), 1u32)
+        };
+        if name.is_empty() {
+            warnings.push(format!("resources: empty name in {entry:?}"));
+            continue;
+        }
+        out.push(ResourceClaim {
+            resource_name: name,
+            units,
+        });
+    }
+    out
 }
 
 fn build_retry(n_retrys: u32) -> RetryPolicy {

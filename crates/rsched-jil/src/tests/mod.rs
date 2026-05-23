@@ -283,6 +283,25 @@ fn autosys_parity_attrs_parse() {
 }
 
 #[test]
+fn resources_attr_parses() {
+    let jil = "insert_job: r_job   job_type: c\ncommand: echo\nresources: \"db(3),cpu,gpu(2)\"\n";
+    let blocks = parse(jil).unwrap();
+    match &blocks[0] {
+        JilBlock::Insert(spec) => {
+            let out = spec.clone().into_job().unwrap();
+            assert_eq!(out.job.resource_claims.len(), 3);
+            assert_eq!(out.job.resource_claims[0].resource_name, "db");
+            assert_eq!(out.job.resource_claims[0].units, 3);
+            assert_eq!(out.job.resource_claims[1].resource_name, "cpu");
+            assert_eq!(out.job.resource_claims[1].units, 1);
+            assert_eq!(out.job.resource_claims[2].resource_name, "gpu");
+            assert_eq!(out.job.resource_claims[2].units, 2);
+        }
+        _ => panic!(),
+    }
+}
+
+#[test]
 fn autosys_parity_translate_to_job() {
     let blocks = parse(AUTOSYS_PARITY_JIL).unwrap();
     match &blocks[0] {
