@@ -58,6 +58,8 @@ define_id!(/// Identifier for a user.
     UserId);
 define_id!(/// Identifier for an API key.
     ApiKeyId);
+define_id!(/// Identifier for a virtual resource.
+    ResourceId);
 
 #[cfg(test)]
 mod tests {

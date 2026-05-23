@@ -1,6 +1,24 @@
 # Project notes — post v0.1.0 (2026-05-19)
 
-## v0.3.2 (in progress — branch `feat/v0.3.2-box-rollup-must-times`, 2026-05-23)
+## v0.5.0 (in progress — branch `feat/v0.5-virtual-resources`, 2026-05-23)
+
+Autosys-style virtual resources — named counters with fixed capacity.
+
+### Shipped
+- Migration `0004_resources.sql` (sqlite + postgres) — `resources`, `resource_holds`, `jobs.resource_claims_json`
+- `rsched_core::{Resource, ResourceClaim, ResourceId}`
+- `Job.resource_claims: Vec<ResourceClaim>` persisted in store
+- `ResourceRepo` — insert/list/get_by_name/delete/available_units/try_acquire/release
+- `try_acquire` is atomic (per-claim transaction): all-or-nothing, rolls back on partial failure or unknown resource name
+- Scheduler tick acquires before dispatch; blocked job is left queued for the next tick (no next_fire advance — retries same fire)
+- `bin` releases holds on every terminal run state
+
+### Out of scope
+- REST routes for resource CRUD (use direct DB access for now)
+- UI page for resources
+- JIL `resources:` attr → `Vec<ResourceClaim>` translation
+
+## v0.3.2 (merged 2026-05-23 — PR #34)
 
 Helpers for box rollup + must_times alerts. Pure functions only; runtime
 wiring is a follow-up.
