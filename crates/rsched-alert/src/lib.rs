@@ -14,5 +14,5 @@ mod smtp;
 pub use channel::{deliver_all, Channel, SlackChannel, WebhookChannel};
 pub use error::AlertError;
 pub use payload::AlertPayload;
-pub use sla::{evaluate_sla, SlaBreach};
+pub use sla::{evaluate_must_times, evaluate_sla, SlaBreach};
 pub use smtp::{EmailChannel, SmtpConfig};

@@ -103,3 +103,137 @@ mod tests {
         );
     }
 }
+
+/// Evaluate a run against Autosys-style `must_start_times` /
+/// `must_complete_times` lists. Both lists are wall-clock UTC times of day;
+/// today's date is taken from `now`.
+///
+/// Rules:
+/// - If `started_at` is None and `now` has passed every `must_start_times`
+///   entry for today → [`SlaBreach::LateStart`].
+/// - If `started_at` is Some, run is still running, and `now` has passed any
+///   `must_complete_times` entry that fell after the run started →
+///   [`SlaBreach::SlaMiss`].
+/// - Otherwise [`SlaBreach::None`].
+pub fn evaluate_must_times(
+    now: DateTime<Utc>,
+    started_at: Option<DateTime<Utc>>,
+    must_start_times: &[chrono::NaiveTime],
+    must_complete_times: &[chrono::NaiveTime],
+) -> SlaBreach {
+    use chrono::TimeZone;
+    let today = now.date_naive();
+    let to_utc =
+        |t: chrono::NaiveTime| -> DateTime<Utc> { Utc.from_utc_datetime(&today.and_time(t)) };
+
+    if started_at.is_none() && !must_start_times.is_empty() {
+        let all_passed = must_start_times.iter().all(|t| now > to_utc(*t));
+        if all_passed {
+            return SlaBreach::LateStart;
+        }
+        return SlaBreach::None;
+    }
+
+    if let Some(started) = started_at {
+        for t in must_complete_times {
+            let deadline = to_utc(*t);
+            if deadline > started && now > deadline {
+                return SlaBreach::SlaMiss;
+            }
+        }
+    }
+    SlaBreach::None
+}
+
+#[cfg(test)]
+mod must_times_tests {
+    use super::*;
+    use chrono::{Duration, NaiveTime, TimeZone};
+
+    fn at(h: u32, m: u32) -> DateTime<Utc> {
+        let today = Utc::now().date_naive();
+        Utc.from_utc_datetime(&today.and_time(NaiveTime::from_hms_opt(h, m, 0).unwrap()))
+    }
+
+    #[test]
+    fn no_breach_before_must_start_window() {
+        let now = at(1, 30);
+        let must_start = vec![NaiveTime::from_hms_opt(2, 0, 0).unwrap()];
+        assert_eq!(
+            evaluate_must_times(now, None, &must_start, &[]),
+            SlaBreach::None
+        );
+    }
+
+    #[test]
+    fn late_start_when_past_all_must_start_times() {
+        let now = at(3, 0);
+        let must_start = vec![
+            NaiveTime::from_hms_opt(2, 0, 0).unwrap(),
+            NaiveTime::from_hms_opt(2, 30, 0).unwrap(),
+        ];
+        assert_eq!(
+            evaluate_must_times(now, None, &must_start, &[]),
+            SlaBreach::LateStart
+        );
+    }
+
+    #[test]
+    fn no_late_start_when_one_slot_still_pending() {
+        let now = at(2, 15);
+        let must_start = vec![
+            NaiveTime::from_hms_opt(2, 0, 0).unwrap(),
+            NaiveTime::from_hms_opt(2, 30, 0).unwrap(),
+        ];
+        // 2:00 passed but 2:30 hasn't — still some hope of starting on time.
+        assert_eq!(
+            evaluate_must_times(now, None, &must_start, &[]),
+            SlaBreach::None
+        );
+    }
+
+    #[test]
+    fn sla_miss_when_past_must_complete() {
+        let now = at(4, 30);
+        let started = Some(at(2, 0));
+        let must_complete = vec![NaiveTime::from_hms_opt(4, 0, 0).unwrap()];
+        assert_eq!(
+            evaluate_must_times(now, started, &[], &must_complete),
+            SlaBreach::SlaMiss
+        );
+    }
+
+    #[test]
+    fn no_sla_miss_before_must_complete() {
+        let now = at(3, 30);
+        let started = Some(at(2, 0));
+        let must_complete = vec![NaiveTime::from_hms_opt(4, 0, 0).unwrap()];
+        assert_eq!(
+            evaluate_must_times(now, started, &[], &must_complete),
+            SlaBreach::None
+        );
+    }
+
+    #[test]
+    fn must_complete_before_start_ignored() {
+        let now = at(4, 30);
+        let started = Some(at(4, 0));
+        // 3:00 must_complete is BEFORE the run started — irrelevant.
+        let must_complete = vec![NaiveTime::from_hms_opt(3, 0, 0).unwrap()];
+        assert_eq!(
+            evaluate_must_times(now, started, &[], &must_complete),
+            SlaBreach::None
+        );
+    }
+
+    #[test]
+    fn empty_must_times_lists_never_fire() {
+        let now = at(12, 0);
+        assert_eq!(evaluate_must_times(now, None, &[], &[]), SlaBreach::None);
+        assert_eq!(
+            evaluate_must_times(now, Some(at(10, 0)), &[], &[]),
+            SlaBreach::None
+        );
+        let _ = Duration::seconds(0); // silence unused import warning
+    }
+}
