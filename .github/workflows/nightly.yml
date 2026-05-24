@@ -1,0 +1,67 @@
+name: nightly
+
+on:
+  schedule:
+    # 07:00 UTC every day. Pinning the minute avoids GitHub's bursty scheduler.
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  bench:
+    name: cargo bench (compile only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Compile benches
+        run: cargo bench --no-run -p rsched-scheduler
+      - name: Run benches (best-effort)
+        # Don't fail the workflow on bench noise — we only want signal-grade
+        # regressions, which we'll wire to baselines in a follow-up.
+        continue-on-error: true
+        run: cargo bench -p rsched-scheduler -- --sample-size 10 --quick
+
+  chaos:
+    name: docker-compose chaos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Run chaos scenarios
+        run: docker compose -f docker-compose.chaos.yml up --abort-on-container-exit --exit-code-from chaos-runner chaos-runner
+      - name: Dump rusty-sched logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.chaos.yml logs rusty-sched || true
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.chaos.yml down -v
+
+  notify:
+    name: open issue on failure
+    needs: [bench, chaos]
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions-ecosystem/action-create-issue@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          title: "nightly chaos/bench failure on ${{ github.run_id }}"
+          body: |
+            The nightly chaos + bench workflow failed.
+
+            * Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            * Commit: ${{ github.sha }}
+
+            Please triage. The chaos job dumps `rusty-sched` logs on failure.
+          labels: |
+            chaos
+            nightly
+            bug

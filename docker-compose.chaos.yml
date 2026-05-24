@@ -1,0 +1,85 @@
+# docker-compose.chaos.yml
+#
+# Spins up rusty-sched + Postgres behind a Toxiproxy so chaos/scenarios.sh
+# can inject latency, packet loss, partitions, and force restarts to verify
+# the scheduler stays healthy (or recovers) via /readyz.
+#
+# Usage:
+#   docker compose -f docker-compose.chaos.yml up --abort-on-container-exit chaos-runner
+#
+# Notes:
+#   - If a local ./Dockerfile exists, rusty-sched is built from it. Otherwise
+#     the GHCR image is used. The CI nightly job pre-builds locally.
+#   - Toxiproxy listens on :8474 (control plane) and proxies postgres on :5433.
+#     rusty-sched connects to toxiproxy:5433, which forwards to postgres:5432.
+#   - Networking is on the shared `chaosnet` bridge.
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: rsched
+      POSTGRES_PASSWORD: rsched
+      POSTGRES_DB: rsched
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rsched -d rsched"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    networks: [chaosnet]
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    command: ["-host=0.0.0.0", "-config=/config/toxiproxy.json"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./chaos/toxiproxy.json:/config/toxiproxy.json:ro
+    networks: [chaosnet]
+    ports:
+      - "8474:8474"
+
+  rusty-sched:
+    image: ghcr.io/jdp5949/rusty-sched:main
+    # If a Dockerfile is present at the repo root, prefer the local build —
+    # `build:` is honored only when the directory contains a Dockerfile.
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      toxiproxy:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    environment:
+      RSCHED_DB_URL: postgres://rsched:rsched@toxiproxy:5433/rsched
+      RUST_LOG: info
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/readyz || exit 1"]
+      interval: 3s
+      timeout: 2s
+      retries: 40
+    networks: [chaosnet]
+
+  chaos-runner:
+    image: alpine:3.20
+    depends_on:
+      rusty-sched:
+        condition: service_healthy
+      toxiproxy:
+        condition: service_started
+    volumes:
+      - ./chaos:/chaos:ro
+    working_dir: /chaos
+    environment:
+      TOXIPROXY_URL: http://toxiproxy:8474
+      RSCHED_URL: http://rusty-sched:8080
+      POSTGRES_HOST: postgres
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["apk add --no-cache curl jq bash >/dev/null && bash /chaos/scenarios.sh"]
+    networks: [chaosnet]
+
+networks:
+  chaosnet:
+    driver: bridge

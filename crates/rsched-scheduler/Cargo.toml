@@ -23,3 +23,8 @@ tracing = { workspace = true }
 [dev-dependencies]
 proptest = { workspace = true }
 sqlx = { workspace = true }
+criterion = { version = "0.5", features = ["async_tokio"] }
+
+[[bench]]
+name = "tick"
+harness = false
