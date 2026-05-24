@@ -1,0 +1,47 @@
+# winget v1.6 single-file manifest template for rusty-sched.
+#
+# Real publication uses three files (version / installer / locale.en-US) under
+# `manifests/r/rusty-sched/rusty-sched/<version>/` in the
+# https://github.com/microsoft/winget-pkgs repo. This single-file form is
+# kept here as the source-of-truth for the metadata; `wingetcreate update`
+# can also be used in CI to regenerate the multi-file split.
+#
+# To publish a new version:
+#   1. After release vX.Y.Z, get the MSI SHA256:
+#        Get-FileHash rusty-sched-vX.Y.Z-x86_64.msi -Algorithm SHA256
+#   2. Update PackageVersion, InstallerUrl, InstallerSha256, ReleaseDate below.
+#   3. Run:  wingetcreate submit --token $env:GH_TOKEN packaging/winget/rusty-sched.yaml
+#      OR open a PR to microsoft/winget-pkgs manually under
+#      manifests/r/rusty-sched/rusty-sched/X.Y.Z/.
+
+PackageIdentifier: rusty-sched.rusty-sched
+PackageVersion: 0.1.0
+PackageLocale: en-US
+Publisher: rusty-sched contributors
+PublisherUrl: https://github.com/jdp5949/rusty-sched
+PublisherSupportUrl: https://github.com/jdp5949/rusty-sched/issues
+PackageName: rusty-sched
+PackageUrl: https://github.com/jdp5949/rusty-sched
+License: Apache-2.0
+LicenseUrl: https://github.com/jdp5949/rusty-sched/blob/main/LICENSE
+ShortDescription: Job scheduler with retries, triggers, and a built-in agent.
+Description: |
+  rusty-sched is a job scheduler written in Rust. It supports cron + interval
+  + file + webhook triggers, retries, a built-in agent for distributed runs,
+  and a sendevent CLI for manual interventions.
+Moniker: rusty-sched
+Tags:
+  - scheduler
+  - cron
+  - jobs
+  - rust
+InstallerLocale: en-US
+InstallerType: wix
+Scope: machine
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/jdp5949/rusty-sched/releases/download/v0.1.0/rusty-sched-v0.1.0-x86_64.msi
+    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+ReleaseDate: 2026-01-01
+ManifestType: singleton
+ManifestVersion: 1.6.0

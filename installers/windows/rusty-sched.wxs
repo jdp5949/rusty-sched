@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  WiX v4 source for the rusty-sched MSI installer.
+
+  Built by the `windows-msi` job in .github/workflows/release.yml using the
+  WiX 4 CLI (`wix build`). Version is injected at build-time via a -d switch:
+
+      wix build -d Version=$Env:RS_VERSION -o rusty-sched.msi installers/windows/rusty-sched.wxs
+
+  Layout produced:
+    %ProgramFiles%\rusty-sched\
+      rusty-sched.exe
+      rusty-sched-service.ps1
+      LICENSE.txt
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="rusty-sched"
+      Manufacturer="rusty-sched contributors"
+      Version="$(Version)"
+      UpgradeCode="b2e1c7f4-3a5d-4b7e-9d6f-7a8b9c0d1e2f"
+      Scope="perMachine">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of rusty-sched is already installed." />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <Feature Id="Main" Title="rusty-sched" Level="1">
+      <ComponentGroupRef Id="MainComponents" />
+    </Feature>
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="rusty-sched" />
+    </StandardDirectory>
+
+    <ComponentGroup Id="MainComponents" Directory="INSTALLFOLDER">
+      <Component Id="Cmp_RustySched" Guid="*">
+        <File Id="File_RustySched" Source="rusty-sched.exe" KeyPath="yes" />
+        <Environment
+            Id="Env_AddToPath"
+            Name="PATH"
+            Value="[INSTALLFOLDER]"
+            Permanent="no"
+            Part="last"
+            Action="set"
+            System="yes" />
+      </Component>
+      <Component Id="Cmp_ServiceScript" Guid="*">
+        <File Id="File_ServiceScript" Source="rusty-sched-service.ps1" KeyPath="yes" />
+      </Component>
+      <Component Id="Cmp_License" Guid="*">
+        <File Id="File_License" Source="LICENSE.txt" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Package>
+</Wix>
