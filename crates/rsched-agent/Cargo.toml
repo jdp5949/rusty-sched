@@ -12,6 +12,7 @@ rsched-core = { path = "../rsched-core" }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 chrono = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tokio-stream = { workspace = true }
