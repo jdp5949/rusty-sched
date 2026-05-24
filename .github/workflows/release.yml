@@ -91,3 +91,244 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
+
+  # --------------------------------------------------------------------------
+  # Signed / native installers. All of these only run on a real tag push.
+  # If signing secrets are absent, the unsigned artifact is shipped with a
+  # log line — never a hard failure (so forks without secrets still get a
+  # green release run).
+  # --------------------------------------------------------------------------
+
+  mac-pkg:
+    name: macOS .pkg
+    needs: build
+    runs-on: macos-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64-apple-darwin, aarch64-apple-darwin]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: dl
+      - name: Stage payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p pkgroot/usr/local/bin pkgroot/Library/LaunchDaemons
+          tar -xzf dl/*.tar.gz -C dl/
+          bin="$(find dl -type f -name rusty-sched -perm -u+x | head -n1)"
+          cp "$bin" pkgroot/usr/local/bin/rusty-sched
+          chmod 0755 pkgroot/usr/local/bin/rusty-sched
+          cp installers/launchd/com.rustysched.agent.plist  pkgroot/Library/LaunchDaemons/
+          cp installers/launchd/com.rustysched.server.plist pkgroot/Library/LaunchDaemons/
+      - name: Build .pkg
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          pkg="out/rusty-sched-${GITHUB_REF_NAME}-${{ matrix.target }}.pkg"
+          pkgbuild \
+            --root pkgroot \
+            --identifier com.rustysched.pkg \
+            --version "${GITHUB_REF_NAME#v}" \
+            --install-location / \
+            "$pkg"
+          echo "PKG_PATH=$pkg" >> "$GITHUB_ENV"
+      - name: Codesign + notarize
+        if: env.APPLE_CERT_P12 != ''
+        env:
+          APPLE_CERT_P12:          ${{ secrets.APPLE_CERT_P12 }}
+          APPLE_CERT_PASSWORD:     ${{ secrets.APPLE_CERT_PASSWORD }}
+          APPLE_DEVELOPER_ID:      ${{ secrets.APPLE_DEVELOPER_ID }}
+          APPLE_NOTARY_APPLE_ID:   ${{ secrets.APPLE_NOTARY_APPLE_ID }}
+          APPLE_NOTARY_TEAM_ID:    ${{ secrets.APPLE_NOTARY_TEAM_ID }}
+          APPLE_NOTARY_PASSWORD:   ${{ secrets.APPLE_NOTARY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          kc="$RUNNER_TEMP/build.keychain"
+          security create-keychain -p actions "$kc"
+          security default-keychain -s "$kc"
+          security unlock-keychain -p actions "$kc"
+          echo "$APPLE_CERT_P12" | base64 -d > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$kc" \
+            -P "$APPLE_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productsign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k actions "$kc"
+          signed="${PKG_PATH%.pkg}-signed.pkg"
+          productsign --sign "$APPLE_DEVELOPER_ID" "$PKG_PATH" "$signed"
+          mv "$signed" "$PKG_PATH"
+          xcrun notarytool submit "$PKG_PATH" \
+            --apple-id "$APPLE_NOTARY_APPLE_ID" \
+            --team-id  "$APPLE_NOTARY_TEAM_ID" \
+            --password "$APPLE_NOTARY_PASSWORD" \
+            --wait
+          xcrun stapler staple "$PKG_PATH"
+      - name: Note unsigned build
+        if: env.APPLE_CERT_P12 == ''
+        env:
+          APPLE_CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
+        run: echo "skipping signing — APPLE_CERT_P12 not set"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-pkg-${{ matrix.target }}
+          path: out/*.pkg
+          if-no-files-found: error
+          retention-days: 7
+
+  windows-msi:
+    name: Windows MSI
+    needs: build
+    runs-on: windows-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-x86_64-pc-windows-msvc
+          path: dl
+      - name: Stage payload
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force stage | Out-Null
+          $zip = Get-ChildItem dl -Filter *.zip | Select-Object -First 1
+          Expand-Archive -Path $zip.FullName -DestinationPath dl/extracted
+          $exe = Get-ChildItem dl/extracted -Recurse -Filter rusty-sched.exe | Select-Object -First 1
+          Copy-Item $exe.FullName stage\rusty-sched.exe
+          Copy-Item installers/windows/rusty-sched-service.ps1 stage\rusty-sched-service.ps1
+          Copy-Item LICENSE stage\LICENSE.txt
+      - name: Install WiX 4
+        shell: pwsh
+        run: dotnet tool install --global wix --version 4.0.5
+      - name: Build MSI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ver = $env:GITHUB_REF_NAME.TrimStart('v')
+          New-Item -ItemType Directory -Force out | Out-Null
+          $msi = "out/rusty-sched-$($env:GITHUB_REF_NAME)-x86_64.msi"
+          wix build -d Version=$ver `
+            -b stage `
+            -o $msi `
+            installers/windows/rusty-sched.wxs
+          "MSI_PATH=$msi" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Sign MSI
+        if: env.WIN_CERT_P12 != ''
+        env:
+          WIN_CERT_P12:          ${{ secrets.WIN_CERT_P12 }}
+          WIN_CERT_PASSWORD:     ${{ secrets.WIN_CERT_PASSWORD }}
+          WIN_CERT_TIMESTAMP_URL: ${{ secrets.WIN_CERT_TIMESTAMP_URL }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pfx = Join-Path $env:RUNNER_TEMP 'cert.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WIN_CERT_P12))
+          $ts = if ($env:WIN_CERT_TIMESTAMP_URL) { $env:WIN_CERT_TIMESTAMP_URL } else { 'http://timestamp.digicert.com' }
+          & signtool sign /fd SHA256 /tr $ts /td SHA256 `
+            /f $pfx /p $env:WIN_CERT_PASSWORD `
+            $env:MSI_PATH
+      - name: Note unsigned build
+        if: env.WIN_CERT_P12 == ''
+        env:
+          WIN_CERT_P12: ${{ secrets.WIN_CERT_P12 }}
+        shell: bash
+        run: echo "skipping signing — WIN_CERT_P12 not set"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-msi
+          path: out/*.msi
+          if-no-files-found: error
+          retention-days: 7
+
+  linux-deb:
+    name: Linux .deb
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: 'x86_64-unknown-linux-gnu' }
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-deb
+        run: cargo install cargo-deb --locked
+      - name: Build .deb
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cargo deb -p rusty-sched --no-strip --target x86_64-unknown-linux-gnu
+          cp target/x86_64-unknown-linux-gnu/debian/*.deb out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-deb
+          path: out/*.deb
+          if-no-files-found: error
+          retention-days: 7
+
+  linux-rpm:
+    name: Linux .rpm
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: 'x86_64-unknown-linux-gnu' }
+      - uses: Swatinem/rust-cache@v2
+      - name: Build release binary
+        run: cargo build --release --target x86_64-unknown-linux-gnu -p rusty-sched
+      - name: Install cargo-generate-rpm
+        run: cargo install cargo-generate-rpm --locked
+      - name: Build .rpm
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cargo generate-rpm -p crates/rusty-sched --target x86_64-unknown-linux-gnu || \
+            cargo generate-rpm -p rusty-sched --target x86_64-unknown-linux-gnu
+          cp target/x86_64-unknown-linux-gnu/generate-rpm/*.rpm out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-rpm
+          path: out/*.rpm
+          if-no-files-found: error
+          retention-days: 7
+
+  attach-installers:
+    name: Attach native installers to release
+    needs: [release, mac-pkg, windows-msi, linux-deb, linux-rpm]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: 'dist-pkg-*'
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: 'dist-msi'
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: 'dist-deb'
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: 'dist-rpm'
+          merge-multiple: true
+      - name: List installer artifacts
+        run: ls -la dist/
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: false
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
