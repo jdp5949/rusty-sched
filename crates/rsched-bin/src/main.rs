@@ -201,6 +201,9 @@ async fn run_server(
                         run.exit_code = o.exit_code;
                         run.finished_at = Some(o.finished_at);
                         run.log_bytes = bytes;
+                        run.peak_rss_bytes = o.peak_rss_bytes;
+                        run.cpu_user_secs = o.cpu_user_secs;
+                        run.cpu_sys_secs = o.cpu_sys_secs;
                         info!(%run_id, job=%job_name, state=?run.state, "run finished");
                     }
                     Ok(Err(_killed)) => {

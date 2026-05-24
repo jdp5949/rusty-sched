@@ -39,7 +39,7 @@ impl RunState {
 }
 
 /// A single attempt to run a job.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Run {
     /// Identifier.
     pub id: RunId,
@@ -65,6 +65,15 @@ pub struct Run {
     pub log_truncated: bool,
     /// Bytes of log captured.
     pub log_bytes: u64,
+    /// Peak resident set size (bytes) reported by getrusage at exit. Unix only.
+    #[serde(default)]
+    pub peak_rss_bytes: Option<u64>,
+    /// User-mode CPU seconds at exit (getrusage). Unix only.
+    #[serde(default)]
+    pub cpu_user_secs: Option<f64>,
+    /// Kernel-mode CPU seconds at exit (getrusage). Unix only.
+    #[serde(default)]
+    pub cpu_sys_secs: Option<f64>,
 }
 
 impl Run {
@@ -83,6 +92,9 @@ impl Run {
             parent_run_ids: Vec::new(),
             log_truncated: false,
             log_bytes: 0,
+            peak_rss_bytes: None,
+            cpu_user_secs: None,
+            cpu_sys_secs: None,
         }
     }
 }

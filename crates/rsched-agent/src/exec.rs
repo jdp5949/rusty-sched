@@ -42,6 +42,12 @@ pub struct RunOutcome {
     pub log_bytes: u64,
     /// When the process exited (UTC).
     pub finished_at: DateTime<Utc>,
+    /// Peak resident set size in bytes (unix `getrusage`). None on Windows.
+    pub peak_rss_bytes: Option<u64>,
+    /// User-mode CPU seconds. None on Windows.
+    pub cpu_user_secs: Option<f64>,
+    /// Kernel-mode CPU seconds. None on Windows.
+    pub cpu_sys_secs: Option<f64>,
 }
 
 /// Handle returned by [`Executor::dispatch`]. Drop to detach; explicit

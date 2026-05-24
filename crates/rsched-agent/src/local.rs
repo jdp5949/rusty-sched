@@ -69,11 +69,15 @@ impl Executor for LocalExecutor {
                     let status = exit?;
                     let bytes_o = stdout_task.await.unwrap_or(0);
                     let bytes_e = stderr_task.await.unwrap_or(0);
+                    let (rss, cu, cs) = capture_rusage_children();
                     Ok(RunOutcome {
                         exit_code: status.code(),
                         timed_out: false,
                         log_bytes: bytes_o + bytes_e,
                         finished_at: Utc::now(),
+                        peak_rss_bytes: rss,
+                        cpu_user_secs: cu,
+                        cpu_sys_secs: cs,
                     })
                 }
                 _ = kill_rx.recv() => {
@@ -88,11 +92,15 @@ impl Executor for LocalExecutor {
                     let _ = child.wait().await;
                     let bytes_o = stdout_task.await.unwrap_or(0);
                     let bytes_e = stderr_task.await.unwrap_or(0);
+                    let (rss, cu, cs) = capture_rusage_children();
                     Ok(RunOutcome {
                         exit_code: None,
                         timed_out: true,
                         log_bytes: bytes_o + bytes_e,
                         finished_at: Utc::now(),
+                        peak_rss_bytes: rss,
+                        cpu_user_secs: cu,
+                        cpu_sys_secs: cs,
                     })
                 }
             }
@@ -105,6 +113,39 @@ impl Executor for LocalExecutor {
             kill_tx,
             signal_tx,
         })
+    }
+}
+
+/// Capture `getrusage(RUSAGE_CHILDREN)` peak RSS + CPU times.
+///
+/// Returns `(peak_rss_bytes, user_cpu_secs, sys_cpu_secs)` on unix; all
+/// `None` on Windows. NOTE: RUSAGE_CHILDREN reports the cumulative usage of
+/// **every** child that has been reaped — when the executor runs multiple
+/// jobs concurrently in one process, the numbers attributed to a single run
+/// may include other reaped children. Accurate enough for trend analysis,
+/// not for billing.
+fn capture_rusage_children() -> (Option<u64>, Option<f64>, Option<f64>) {
+    #[cfg(unix)]
+    {
+        let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
+        let rc = unsafe { libc::getrusage(libc::RUSAGE_CHILDREN, &mut ru) };
+        if rc != 0 {
+            return (None, None, None);
+        }
+        // ru_maxrss is kilobytes on Linux, bytes on macOS.
+        let rss_kib = ru.ru_maxrss as i64;
+        let rss_bytes = if cfg!(target_os = "macos") {
+            rss_kib as u64
+        } else {
+            (rss_kib as u64).saturating_mul(1024)
+        };
+        let user = ru.ru_utime.tv_sec as f64 + ru.ru_utime.tv_usec as f64 / 1_000_000.0;
+        let sys = ru.ru_stime.tv_sec as f64 + ru.ru_stime.tv_usec as f64 / 1_000_000.0;
+        (Some(rss_bytes), Some(user), Some(sys))
+    }
+    #[cfg(not(unix))]
+    {
+        (None, None, None)
     }
 }
 
