@@ -232,6 +232,25 @@ full grammar.</p>
 </code></pre>
 <p>The slug must be ≥ 8 chars and the secret ≥ 16 chars. HMAC-SHA256 of the
 body is checked against the <code>X-Sig</code> header on each request.</p>
+<h3 id="replay-protection-v034"><a class="header" href="#replay-protection-v034">Replay protection (v0.3.4+)</a></h3>
+<p>After HMAC verification the receiver records <code>sha256(body)</code> for the slug
+in an in-process cache. Subsequent identical requests within the dedup
+window return <strong><code>409 Conflict</code></strong> with
+<code>{"error":"duplicate request within replay window"}</code>. This blocks an
+attacker who captures a valid signed request from re-firing the job
+indefinitely.</p>
+<div class="table-wrapper"><table><thead><tr><th>Env var</th><th>Default</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>RSCHED_WEBHOOK_DEDUP_WINDOW_SECS</code></td><td><code>300</code></td><td>TTL (seconds) of a fingerprint</td></tr>
+<tr><td><code>RSCHED_WEBHOOK_DEDUP_MAX</code></td><td><code>10000</code></td><td>Cap on cached fingerprints (oldest evicted)</td></tr>
+</tbody></table>
+</div>
+<p><strong>Limitations.</strong> The cache is <strong>per-process</strong>. A multi-replica
+deployment (Raft / load-balanced API) will not dedup across replicas in
+v0.3.4 — a request hitting two different nodes inside the window can
+still fire twice. A shared coordinator (Raft log or Redis) is planned
+but out of scope for this release.</p>
+<p>A background task prunes expired entries every 60s; entries also expire
+lazily when the slot is reused.</p>
 <h2 id="misfire-policy"><a class="header" href="#misfire-policy">Misfire policy</a></h2>
 <p><code>Job.misfire</code> controls what the tick loop does for fires that were missed
 because the server was down or the job was paused:</p>
