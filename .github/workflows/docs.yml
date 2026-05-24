@@ -1,0 +1,59 @@
+name: docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/book/**'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: docs
+  cancel-in-progress: true
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mdBook
+        run: |
+          mkdir -p $HOME/.cargo/bin
+          curl -fsSL https://github.com/rust-lang/mdBook/releases/download/v0.4.40/mdbook-v0.4.40-x86_64-unknown-linux-gnu.tar.gz \
+            | tar -xz -C $HOME/.cargo/bin
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Build book
+        run: |
+          cd docs/book
+          mdbook build
+
+      - name: Checkout gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages
+
+      - name: Sync book into gh-pages/book/
+        run: |
+          rm -rf gh-pages/book
+          mkdir -p gh-pages/book
+          cp -r docs/book/book/. gh-pages/book/
+
+      - name: Commit + push
+        run: |
+          cd gh-pages
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -n "$(git status --porcelain)" ]; then
+            git add book
+            git commit -m "docs(book): rebuild from ${{ github.sha }}"
+            git push origin gh-pages
+          else
+            echo "No book changes."
+          fi

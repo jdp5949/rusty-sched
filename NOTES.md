@@ -1,6 +1,21 @@
 # Project notes — post v0.1.0 (2026-05-19)
 
-## v0.7.1 (in progress — branch `feat/v0.7.1-rusage-metrics`, 2026-05-23)
+## v1.0-alpha docs (in progress — branch `feat/v1.0-alpha-mdbook-docs`, 2026-05-23)
+
+mdBook docs site under `docs/book/`. Published to
+`https://jdp5949.github.io/rusty-sched/book/` via GitHub Actions.
+
+### Shipped
+- `docs/book/book.toml` (rust theme + ayu dark + edit-on-github)
+- 15 chapters covering: intro, install, quickstart, jobs, triggers,
+  boxes, calendars, resources, globals, conditions, alerts, API, CLI,
+  JIL, sendevent/autorep, auth/RBAC, deployment, troubleshooting,
+  architecture, Autosys+Cronicle compat matrix, roadmap
+- `.github/workflows/docs.yml` — builds mdBook on push to `main` when
+  `docs/book/**` changes, syncs into `gh-pages/book/` subdir and commits
+- `.gitignore` updated to skip `docs/book/book/` (build output)
+
+## v0.7.1 (merged 2026-05-23 — PR #40)
 
 Per-run rusage capture: peak RSS + user/sys CPU seconds.
 
