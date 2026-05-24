@@ -1,0 +1,4 @@
+-- v0.7.1 — per-run rusage metrics.
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS peak_rss_bytes BIGINT;
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS cpu_user_secs  DOUBLE PRECISION;
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS cpu_sys_secs   DOUBLE PRECISION;

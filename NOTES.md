@@ -1,6 +1,23 @@
 # Project notes — post v0.1.0 (2026-05-19)
 
-## v0.6.2 (in progress — branch `feat/v0.6.2-send-signal`, 2026-05-23)
+## v0.7.1 (in progress — branch `feat/v0.7.1-rusage-metrics`, 2026-05-23)
+
+Per-run rusage capture: peak RSS + user/sys CPU seconds.
+
+### Shipped
+- Migration 0006 adds `peak_rss_bytes`, `cpu_user_secs`, `cpu_sys_secs` to `runs`
+- `Run` + `RunOutcome` carry the three new fields
+- `LocalExecutor` calls `getrusage(RUSAGE_CHILDREN)` at child exit (unix);
+  no-op on Windows. macOS `ru_maxrss` already in bytes; Linux in KiB so we
+  multiply by 1024.
+- Run-detail UI card shows `RSS X.X MB` + `CPU X.XXs`
+
+### Out of scope
+- Per-second time-series sampling (only end-of-run snapshot for now)
+- Cross-process attribution (RUSAGE_CHILDREN is cumulative; concurrent
+  runs inside the same scheduler process share the number)
+
+## v0.6.2 (merged 2026-05-23 — PR #39)
 
 SEND_SIGNAL verb. Forward unix signals (HUP/TERM/USR1/USR2/etc.) to
 running jobs.

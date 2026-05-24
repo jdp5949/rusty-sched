@@ -523,7 +523,8 @@ impl<'a> RunRepo<'a> {
         sqlx::query(
             r#"UPDATE runs SET
               agent_id = ?, state = ?, started_at = ?, finished_at = ?,
-              exit_code = ?, log_truncated = ?, log_bytes = ?
+              exit_code = ?, log_truncated = ?, log_bytes = ?,
+              peak_rss_bytes = ?, cpu_user_secs = ?, cpu_sys_secs = ?
               WHERE id = ?"#,
         )
         .bind(run.agent_id.as_ref().map(|a| a.to_string()))
@@ -533,6 +534,9 @@ impl<'a> RunRepo<'a> {
         .bind(run.exit_code.map(|c| c as i64))
         .bind(run.log_truncated as i64)
         .bind(run.log_bytes as i64)
+        .bind(run.peak_rss_bytes.map(|v| v as i64))
+        .bind(run.cpu_user_secs)
+        .bind(run.cpu_sys_secs)
         .bind(run.id.to_string())
         .execute(self.pool)
         .await?;
@@ -701,6 +705,9 @@ fn row_to_run(row: &sqlx::any::AnyRow) -> Result<Run, StoreError> {
     let parent_run_ids: Vec<RunId> = serde_json::from_str(&parent_json)?;
     let log_truncated: i64 = row.try_get("log_truncated")?;
     let log_bytes: i64 = row.try_get("log_bytes")?;
+    let peak_rss_bytes: Option<i64> = row.try_get("peak_rss_bytes").ok().flatten();
+    let cpu_user_secs: Option<f64> = row.try_get("cpu_user_secs").ok().flatten();
+    let cpu_sys_secs: Option<f64> = row.try_get("cpu_sys_secs").ok().flatten();
 
     let parse_ts = |s: &str| -> Result<DateTime<Utc>, StoreError> {
         DateTime::parse_from_rfc3339(s)
@@ -721,6 +728,9 @@ fn row_to_run(row: &sqlx::any::AnyRow) -> Result<Run, StoreError> {
         parent_run_ids,
         log_truncated: log_truncated != 0,
         log_bytes: log_bytes as u64,
+        peak_rss_bytes: peak_rss_bytes.map(|v| v as u64),
+        cpu_user_secs,
+        cpu_sys_secs,
     })
 }
 
