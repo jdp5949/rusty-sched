@@ -487,6 +487,7 @@ function ThemeToggle() {
 function HeaderWithUser({ me, onLogout, tab, setTab }) {
   const tabs = [
     { id: 'jobs', label: 'Jobs' },
+    { id: 'dag', label: 'DAG' },
     { id: 'resources', label: 'Resources' },
     { id: 'globals', label: 'Globals' },
     { id: 'apikeys', label: 'API keys' },
@@ -674,6 +675,324 @@ function AuditPage() {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ---------- DAG view ----------
+//
+// Sugiyama-lite layered layout in pure JS. No external deps.
+//   1. Build adjacency from job.dependencies (upstream -> downstream).
+//   2. Assign layers via longest-path topological pass.
+//      Cycles fall back to layer 0 to keep rendering total.
+//   3. Within each layer, sort by box_id then name for stable ordering.
+//   4. Group jobs by box_id; compute bounding rects for box frames.
+
+function layoutDag(jobs) {
+  const NODE_W = 140;
+  const NODE_H = 40;
+  const COL_GAP = 80;
+  const ROW_GAP = 24;
+  const BOX_PAD = 18;
+  const MARGIN = 40;
+
+  const byId = new Map(jobs.map(j => [j.id, j]));
+  const downstream = new Map();
+  const indeg = new Map();
+  for (const j of jobs) {
+    indeg.set(j.id, 0);
+    downstream.set(j.id, []);
+  }
+  for (const j of jobs) {
+    for (const d of (j.dependencies || [])) {
+      if (!byId.has(d.upstream)) continue;
+      downstream.get(d.upstream).push(j.id);
+      indeg.set(j.id, (indeg.get(j.id) || 0) + 1);
+    }
+  }
+
+  const layer = new Map();
+  for (const j of jobs) layer.set(j.id, 0);
+  const queue = [];
+  for (const [id, d] of indeg.entries()) if (d === 0) queue.push(id);
+  const seen = new Set();
+  while (queue.length) {
+    const id = queue.shift();
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const cur = layer.get(id);
+    for (const next of (downstream.get(id) || [])) {
+      if (layer.get(next) < cur + 1) layer.set(next, cur + 1);
+      queue.push(next);
+    }
+  }
+
+  const layers = new Map();
+  for (const j of jobs) {
+    const L = layer.get(j.id) || 0;
+    if (!layers.has(L)) layers.set(L, []);
+    layers.get(L).push(j);
+  }
+  for (const arr of layers.values()) {
+    arr.sort((a, b) => {
+      const ba = a.box_id || '';
+      const bb = b.box_id || '';
+      if (ba !== bb) return ba < bb ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+  }
+
+  const layerKeys = [...layers.keys()].sort((a, b) => a - b);
+  const nodes = [];
+  const pos = new Map();
+  for (const L of layerKeys) {
+    const arr = layers.get(L);
+    const x = MARGIN + L * (NODE_W + COL_GAP);
+    arr.forEach((j, i) => {
+      const y = MARGIN + i * (NODE_H + ROW_GAP);
+      const n = {
+        id: j.id,
+        name: j.name,
+        x, y,
+        box_id: j.box_id || null,
+        state: j._state || 'unknown',
+      };
+      nodes.push(n);
+      pos.set(j.id, n);
+    });
+  }
+
+  const edges = [];
+  for (const j of jobs) {
+    for (const d of (j.dependencies || [])) {
+      if (!pos.has(d.upstream) || !pos.has(j.id)) continue;
+      edges.push({ from: d.upstream, to: j.id, condition: d.condition });
+    }
+  }
+
+  const boxes = [];
+  const boxGroups = new Map();
+  for (const n of nodes) {
+    if (!n.box_id) continue;
+    if (!boxGroups.has(n.box_id)) boxGroups.set(n.box_id, []);
+    boxGroups.get(n.box_id).push(n);
+  }
+  for (const [bid, ns] of boxGroups.entries()) {
+    const minX = Math.min(...ns.map(n => n.x)) - BOX_PAD;
+    const minY = Math.min(...ns.map(n => n.y)) - BOX_PAD - 14;
+    const maxX = Math.max(...ns.map(n => n.x + NODE_W)) + BOX_PAD;
+    const maxY = Math.max(...ns.map(n => n.y + NODE_H)) + BOX_PAD;
+    boxes.push({
+      id: bid,
+      x: minX, y: minY,
+      w: maxX - minX, h: maxY - minY,
+      names: ns.map(n => n.name),
+    });
+  }
+
+  const width = nodes.length
+    ? Math.max(...nodes.map(n => n.x + NODE_W)) + MARGIN
+    : 200;
+  const height = nodes.length
+    ? Math.max(...nodes.map(n => n.y + NODE_H)) + MARGIN
+    : 200;
+
+  return { nodes, edges, boxes, width, height, nodeW: NODE_W, nodeH: NODE_H };
+}
+
+function dagNodeFill(state) {
+  switch (state) {
+    case 'success':  return ['#16a34a', '#15803d'];
+    case 'failed':
+    case 'lost':
+    case 'killed':   return ['#dc2626', '#991b1b'];
+    case 'running':  return ['#2563eb', '#1d4ed8'];
+    case 'queued':
+    case 'pending':  return ['#f59e0b', '#b45309'];
+    default:         return ['#64748b', '#475569'];
+  }
+}
+
+function DagPage() {
+  const [jobs, setJobs] = useState(null);
+  const [err, setErr] = useState(null);
+  const [hover, setHover] = useState(null);
+  const [isDark, setIsDark] = useState(() =>
+    document.documentElement.classList.contains('dark'));
+
+  useEffect(() => {
+    const obs = new MutationObserver(() => {
+      setIsDark(document.documentElement.classList.contains('dark'));
+    });
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => obs.disconnect();
+  }, []);
+
+  async function load() {
+    try {
+      const js = await api('GET', '/jobs');
+      const enriched = await Promise.all(js.map(async j => {
+        try {
+          const s = await api('GET', `/stats/jobs/${j.id}`);
+          const last = (s.recent_outcomes && s.recent_outcomes.length)
+            ? s.recent_outcomes[s.recent_outcomes.length - 1]
+            : null;
+          let state = 'unknown';
+          if (last === 'success') state = 'success';
+          else if (last === 'failure') state = 'failed';
+          else if (last === 'running') state = 'running';
+          return { ...j, _state: state };
+        } catch (_) {
+          return { ...j, _state: 'unknown' };
+        }
+      }));
+      setJobs(enriched);
+      setErr(null);
+    } catch (e) {
+      setErr(e.message);
+    }
+  }
+
+  useEffect(() => {
+    load();
+    const id = setInterval(load, 5000);
+    return () => clearInterval(id);
+  }, []);
+
+  if (jobs === null) {
+    return <div className="text-slate-500 text-sm">loading…</div>;
+  }
+
+  const dag = layoutDag(jobs);
+
+  function edgePath(from, to) {
+    const x1 = from.x + dag.nodeW;
+    const y1 = from.y + dag.nodeH / 2;
+    const x2 = to.x;
+    const y2 = to.y + dag.nodeH / 2;
+    const dx = Math.max(40, (x2 - x1) / 2);
+    return `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+  }
+
+  const nodeIndex = new Map(dag.nodes.map(n => [n.id, n]));
+
+  const boxStroke   = isDark ? '#475569' : '#cbd5e1';
+  const boxFill     = isDark ? 'rgba(148,163,184,0.08)' : 'rgba(148,163,184,0.15)';
+  const edgeStroke  = isDark ? '#64748b' : '#94a3b8';
+  const labelFill   = isDark ? '#cbd5e1' : '#475569';
+  const nodeStroke  = isDark ? '#1e293b' : '#ffffff';
+  const nodeText    = '#ffffff';
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="font-semibold">
+          DAG <span className="text-slate-500 text-sm">({jobs.length} jobs, {dag.edges.length} edges, {dag.boxes.length} boxes)</span>
+        </h2>
+        <div className="flex items-center gap-3 text-xs">
+          <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded" style={{background:'#16a34a'}}></span>success</span>
+          <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded" style={{background:'#dc2626'}}></span>failed</span>
+          <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded" style={{background:'#2563eb'}}></span>running</span>
+          <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded" style={{background:'#64748b'}}></span>unknown</span>
+          <button onClick={load} className="text-slate-600 hover:text-slate-900 dark:text-slate-300">↻ refresh</button>
+        </div>
+      </div>
+      {err && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded text-sm mb-3 dark:bg-red-900/30 dark:border-red-800 dark:text-red-200">{err}</div>}
+      {jobs.length === 0 && <div className="text-slate-500 text-sm">No jobs to graph.</div>}
+      {jobs.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm overflow-auto dark:bg-slate-900 dark:border-slate-800">
+          <svg
+            width="100%"
+            viewBox={`0 0 ${dag.width} ${dag.height}`}
+            style={{minWidth: dag.width, maxWidth: '100%', height: 'auto'}}
+            preserveAspectRatio="xMinYMin meet"
+          >
+            <defs>
+              <marker id="dag-arrow" viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill={edgeStroke} />
+              </marker>
+            </defs>
+
+            {dag.boxes.map(b => (
+              <g key={b.id}>
+                <rect
+                  x={b.x} y={b.y} width={b.w} height={b.h}
+                  rx="12" ry="12"
+                  fill={boxFill}
+                  stroke={boxStroke}
+                  strokeDasharray="6 4"
+                />
+                <text
+                  x={b.x + 10} y={b.y + 14}
+                  fontSize="11"
+                  fill={labelFill}
+                  fontFamily="ui-monospace, Menlo, monospace"
+                >
+                  box {b.id.slice(0, 8)}…
+                </text>
+              </g>
+            ))}
+
+            {dag.edges.map((e, i) => {
+              const from = nodeIndex.get(e.from);
+              const to   = nodeIndex.get(e.to);
+              if (!from || !to) return null;
+              return (
+                <path
+                  key={i}
+                  d={edgePath(from, to)}
+                  fill="none"
+                  stroke={edgeStroke}
+                  strokeWidth="1.5"
+                  markerEnd="url(#dag-arrow)"
+                >
+                  <title>{e.condition}</title>
+                </path>
+              );
+            })}
+
+            {dag.nodes.map(n => {
+              const [lightHex, darkHex] = dagNodeFill(n.state);
+              const fill = isDark ? darkHex : lightHex;
+              return (
+                <g
+                  key={n.id}
+                  onMouseEnter={() => setHover(n)}
+                  onMouseLeave={() => setHover(h => h && h.id === n.id ? null : h)}
+                  style={{cursor: 'pointer'}}
+                >
+                  <rect
+                    x={n.x} y={n.y}
+                    width={dag.nodeW} height={dag.nodeH}
+                    rx="8" ry="8"
+                    fill={fill}
+                    stroke={nodeStroke}
+                    strokeWidth="2"
+                  />
+                  <text
+                    x={n.x + dag.nodeW / 2}
+                    y={n.y + dag.nodeH / 2 + 4}
+                    textAnchor="middle"
+                    fontSize="12"
+                    fontWeight="600"
+                    fill={nodeText}
+                  >
+                    {n.name.length > 18 ? n.name.slice(0, 17) + '…' : n.name}
+                  </text>
+                  <title>{n.name} — {n.state}</title>
+                </g>
+              );
+            })}
+          </svg>
+          {hover && (
+            <div className="mt-2 text-xs text-slate-600 dark:text-slate-300 mono">
+              {hover.name} · <span className={stateColor(hover.state)}>{hover.state}</span>
+              {hover.box_id && <span> · box <span className="text-slate-400">{hover.box_id}</span></span>}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -886,6 +1205,7 @@ function App() {
       <HeaderWithUser me={me} onLogout={logout} tab={tab} setTab={setTab} />
       <div className="max-w-6xl mx-auto px-6 py-6">
         {tab === 'jobs' && <JobsPage />}
+        {tab === 'dag' && <DagPage />}
         {tab === 'resources' && <ResourcesPage />}
         {tab === 'globals' && <GlobalsPage />}
         {tab === 'apikeys' && <ApiKeysPage />}
