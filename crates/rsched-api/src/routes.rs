@@ -1060,7 +1060,7 @@ mod tests {
         state
             .store
             .sessions()
-            .insert(&token, uid, exp, None)
+            .insert(&token, uid, exp, None, None)
             .await
             .unwrap();
         format!("rsched_session={token}")
