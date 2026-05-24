@@ -64,6 +64,8 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/globals/:name",
             get(get_global).delete(delete_global),
         )
+        // Webhook trigger receiver — unauthenticated, HMAC-verified.
+        .route("/api/v1/webhooks/:slug", post(webhook_receiver))
         // Virtual resources (Autosys-style counters).
         .route(
             "/api/v1/resources",
@@ -476,6 +478,103 @@ async fn delete_global(
         )
         .await;
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ----- Webhook trigger receiver --------------------------------------------
+
+use axum::body::Bytes;
+use axum::http::HeaderMap;
+
+/// `POST /api/v1/webhooks/:slug` — fires any job whose `Trigger::Webhook { slug, secret }`
+/// matches. Body is forwarded to HMAC-SHA256 verification using the job's
+/// secret; the request's `X-Sig` header must be the hex-encoded MAC.
+///
+/// Unauthenticated route (no session/Bearer required) since the HMAC is the
+/// authenticator. A 5-minute replay-dedup window over the body hash is
+/// applied per slug.
+async fn webhook_receiver(
+    State(s): State<AppState>,
+    Path(slug): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<StatusCode, ApiError> {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    type HmacSha256 = Hmac<Sha256>;
+
+    let jobs = s.store.jobs().list().await?;
+    let job = jobs
+        .iter()
+        .find(|j| matches!(&j.trigger, Trigger::Webhook { slug: s2, .. } if s2 == &slug));
+    let Some(job) = job else {
+        return Err(ApiError::NotFound(format!(
+            "no job for webhook slug {slug}"
+        )));
+    };
+    let secret = match &job.trigger {
+        Trigger::Webhook { secret, .. } => secret.clone(),
+        _ => return Err(ApiError::Validation("not a webhook job".into())),
+    };
+
+    let sig_hex = headers
+        .get("x-sig")
+        .and_then(|v| v.to_str().ok())
+        .ok_or(ApiError::Unauthorized)?;
+    let expected = {
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
+            .map_err(|_| ApiError::Validation("bad secret".into()))?;
+        mac.update(&body);
+        mac.finalize().into_bytes()
+    };
+    let provided = hex_decode(sig_hex).ok_or(ApiError::Unauthorized)?;
+    if !constant_time_eq(&provided, expected.as_slice()) {
+        return Err(ApiError::Unauthorized);
+    }
+
+    // Fire by setting next_fire_at = now (same path as manual trigger).
+    s.store
+        .jobs()
+        .set_next_fire(job.id, Some(chrono::Utc::now()))
+        .await?;
+    let _ = s
+        .store
+        .audit()
+        .record(None, "webhook.fire", "job", Some(&job.id.to_string()), None)
+        .await;
+    Ok(StatusCode::OK)
+}
+
+fn hex_decode(s: &str) -> Option<Vec<u8>> {
+    if s.len() % 2 != 0 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(s.len() / 2);
+    for chunk in s.as_bytes().chunks_exact(2) {
+        let hi = hex_nibble(chunk[0])?;
+        let lo = hex_nibble(chunk[1])?;
+        out.push((hi << 4) | lo);
+    }
+    Some(out)
+}
+
+fn hex_nibble(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(10 + b - b'a'),
+        b'A'..=b'F' => Some(10 + b - b'A'),
+        _ => None,
+    }
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff: u8 = 0;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
 }
 
 // ----- Resources -----------------------------------------------------------
