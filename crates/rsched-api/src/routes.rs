@@ -531,6 +531,21 @@ async fn webhook_receiver(
         return Err(ApiError::Unauthorized);
     }
 
+    // Replay-protection: 5-minute dedup window over (slug, sha256(body)).
+    // Cache is per-process; see `crate::webhook_dedup`.
+    let body_hash = {
+        use sha2::Digest;
+        let mut h = sha2::Sha256::new();
+        h.update(&body);
+        h.finalize()
+    };
+    let key = format!("{slug}:{}", hex_encode(&body_hash));
+    if s.webhook_dedup.check_and_insert(key) {
+        return Err(ApiError::Conflict(
+            "duplicate request within replay window".into(),
+        ));
+    }
+
     // Fire by setting next_fire_at = now (same path as manual trigger).
     s.store
         .jobs()
@@ -542,6 +557,16 @@ async fn webhook_receiver(
         .record(None, "webhook.fire", "job", Some(&job.id.to_string()), None)
         .await;
     Ok(StatusCode::OK)
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0x0f) as usize] as char);
+    }
+    out
 }
 
 fn hex_decode(s: &str) -> Option<Vec<u8>> {
@@ -1300,5 +1325,136 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(r.status(), 404);
+    }
+
+    // -- webhook replay-dedup --------------------------------------------
+
+    /// Seed a Trigger::Webhook job and return its slug + HMAC secret.
+    async fn seed_webhook_job(state: &AppState) -> (String, String) {
+        use rsched_core::{JobBuilder, Trigger};
+        let slug = "test-slug-abcdef".to_string();
+        let secret = "supersecret-supersecret".to_string();
+        let job = JobBuilder::new(
+            "wh-job",
+            "echo",
+            Trigger::Webhook {
+                slug: slug.clone(),
+                secret: secret.clone(),
+            },
+        )
+        .build()
+        .unwrap();
+        state.store.jobs().insert(&job).await.unwrap();
+        (slug, secret)
+    }
+
+    fn sign(secret: &str, body: &[u8]) -> String {
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+        let mut mac = <Hmac<Sha256>>::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(body);
+        hex_encode(&mac.finalize().into_bytes())
+    }
+
+    fn webhook_req(slug: &str, sig: &str, body: Vec<u8>) -> Request<Body> {
+        Request::builder()
+            .method(Method::POST)
+            .uri(format!("/api/v1/webhooks/{slug}"))
+            .header("content-type", "application/octet-stream")
+            .header("x-sig", sig)
+            .body(Body::from(body))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn webhook_first_request_ok() {
+        let state = fresh_state().await;
+        let (slug, secret) = seed_webhook_job(&state).await;
+        let app = router(state);
+        let body = b"payload-1".to_vec();
+        let sig = sign(&secret, &body);
+        let r = app.oneshot(webhook_req(&slug, &sig, body)).await.unwrap();
+        assert_eq!(r.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn webhook_replay_within_window_returns_409() {
+        let state = fresh_state().await;
+        let (slug, secret) = seed_webhook_job(&state).await;
+        let app = router(state);
+        let body = b"payload-replay".to_vec();
+        let sig = sign(&secret, &body);
+
+        let r1 = app
+            .clone()
+            .oneshot(webhook_req(&slug, &sig, body.clone()))
+            .await
+            .unwrap();
+        assert_eq!(r1.status(), StatusCode::OK);
+
+        let r2 = app.oneshot(webhook_req(&slug, &sig, body)).await.unwrap();
+        assert_eq!(r2.status(), StatusCode::CONFLICT);
+        let bytes = axum::body::to_bytes(r2.into_body(), 1024).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            v["error"].as_str().unwrap(),
+            "duplicate request within replay window"
+        );
+    }
+
+    #[tokio::test]
+    async fn webhook_replay_after_window_expires_is_ok() {
+        // Build state with a zero-length dedup window so the first entry
+        // is already stale by the time the second request arrives.
+        let state = {
+            let mut s = fresh_state().await;
+            let dedup = std::sync::Arc::new(crate::webhook_dedup::WebhookDedup::new(
+                std::time::Duration::from_nanos(1),
+                32,
+            ));
+            s.webhook_dedup = dedup;
+            s
+        };
+        let (slug, secret) = seed_webhook_job(&state).await;
+        let app = router(state);
+        let body = b"payload-expired".to_vec();
+        let sig = sign(&secret, &body);
+
+        let r1 = app
+            .clone()
+            .oneshot(webhook_req(&slug, &sig, body.clone()))
+            .await
+            .unwrap();
+        assert_eq!(r1.status(), StatusCode::OK);
+
+        // Wait a beat so the prior Instant is older than the (1ns) window.
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+
+        let r2 = app.oneshot(webhook_req(&slug, &sig, body)).await.unwrap();
+        assert_eq!(r2.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn webhook_different_body_is_independent() {
+        let state = fresh_state().await;
+        let (slug, secret) = seed_webhook_job(&state).await;
+        let app = router(state);
+
+        let body_a = b"payload-a".to_vec();
+        let sig_a = sign(&secret, &body_a);
+        let r_a = app
+            .clone()
+            .oneshot(webhook_req(&slug, &sig_a, body_a))
+            .await
+            .unwrap();
+        assert_eq!(r_a.status(), StatusCode::OK);
+
+        let body_b = b"payload-b".to_vec();
+        let sig_b = sign(&secret, &body_b);
+        let r_b = app
+            .oneshot(webhook_req(&slug, &sig_b, body_b))
+            .await
+            .unwrap();
+        assert_eq!(r_b.status(), StatusCode::OK);
     }
 }

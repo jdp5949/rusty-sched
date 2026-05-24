@@ -8,6 +8,7 @@ pub mod auth;
 mod error;
 mod routes;
 mod state;
+mod webhook_dedup;
 
 pub use auth::seed_admin_if_empty;
 pub use error::ApiError;
