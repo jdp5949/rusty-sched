@@ -18,6 +18,7 @@ rsched-api = { path = "../rsched-api" }
 rsched-cli = { path = "../rsched-cli" }
 rsched-core = { path = "../rsched-core" }
 rsched-proto = { path = "../rsched-proto" }
+rsched-raft = { path = "../rsched-raft" }
 rsched-scheduler = { path = "../rsched-scheduler" }
 rsched-store = { path = "../rsched-store" }
 rsched-ui = { path = "../rsched-ui" }
