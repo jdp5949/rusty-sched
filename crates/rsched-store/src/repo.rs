@@ -1444,12 +1444,11 @@ impl<'a> SessionRepo<'a> {
         token: &str,
         now: DateTime<Utc>,
     ) -> Result<Option<(UserId, DateTime<Utc>, Option<String>)>, StoreError> {
-        let row = sqlx::query(
-            "SELECT user_id, expires_at, csrf_token FROM sessions WHERE token = ?",
-        )
-        .bind(token)
-        .fetch_optional(self.pool)
-        .await?;
+        let row =
+            sqlx::query("SELECT user_id, expires_at, csrf_token FROM sessions WHERE token = ?")
+                .bind(token)
+                .fetch_optional(self.pool)
+                .await?;
         let row = match row {
             Some(r) => r,
             None => return Ok(None),
