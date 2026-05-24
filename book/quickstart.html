@@ -1,0 +1,288 @@
+<!DOCTYPE HTML>
+<html lang="en" class="rust" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Quickstart - rusty-sched</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="Reliable job scheduler in Rust — OSS Autosys with a Cronicle-grade UI.">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+        <link rel="stylesheet" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "ayu" : "rust";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('rust')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="introduction.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Getting Started</li><li class="chapter-item expanded "><a href="install.html">Install</a></li><li class="chapter-item expanded "><a href="quickstart.html" class="active">Quickstart</a></li><li class="chapter-item expanded affix "><li class="part-title">Concepts</li><li class="chapter-item expanded "><a href="jobs.html">Jobs</a></li><li class="chapter-item expanded "><a href="triggers.html">Triggers</a></li><li class="chapter-item expanded "><a href="boxes.html">Boxes</a></li><li class="chapter-item expanded "><a href="calendars.html">Calendars</a></li><li class="chapter-item expanded "><a href="resources.html">Virtual resources</a></li><li class="chapter-item expanded "><a href="globals.html">Global variables</a></li><li class="chapter-item expanded "><a href="conditions.html">Condition DSL</a></li><li class="chapter-item expanded "><a href="alerts.html">Alerts + SLA</a></li><li class="chapter-item expanded affix "><li class="part-title">Operating</li><li class="chapter-item expanded "><a href="api.html">REST API</a></li><li class="chapter-item expanded "><a href="cli.html">CLI reference</a></li><li class="chapter-item expanded "><a href="jil.html">JIL parser</a></li><li class="chapter-item expanded "><a href="sendevent.html">sendevent / autorep</a></li><li class="chapter-item expanded "><a href="auth.html">Auth + RBAC + API keys</a></li><li class="chapter-item expanded "><a href="deployment.html">Deployment</a></li><li class="chapter-item expanded "><a href="troubleshooting.html">Troubleshooting</a></li><li class="chapter-item expanded affix "><li class="part-title">Reference</li><li class="chapter-item expanded "><a href="architecture.html">Architecture</a></li><li class="chapter-item expanded "><a href="compat.html">Compatibility w/ Autosys + Cronicle</a></li><li class="chapter-item expanded "><a href="roadmap.html">Roadmap</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">rusty-sched</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/jdp5949/rusty-sched" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/jdp5949/rusty-sched/edit/main/docs/book/src/quickstart.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="quickstart"><a class="header" href="#quickstart">Quickstart</a></h1>
+<p>Sixty seconds to a running scheduler with one job firing every minute.</p>
+<h2 id="1-start-the-server"><a class="header" href="#1-start-the-server">1. Start the server</a></h2>
+<pre><code class="language-bash">RSCHED_ADMIN_PASSWORD=change-me cargo run -p rusty-sched -- server
+</code></pre>
+<p>Or, if you installed the binary:</p>
+<pre><code class="language-bash">RSCHED_ADMIN_PASSWORD=change-me rusty-sched server
+</code></pre>
+<p>The first boot creates an <code>admin</code> user, opens a SQLite DB under the OS data
+dir (e.g. <code>~/Library/Application Support/io.rustysched.rusty-sched/rusty.db</code>
+on macOS), and starts the HTTP server on <code>0.0.0.0:8080</code>.</p>
+<h2 id="2-open-the-dashboard"><a class="header" href="#2-open-the-dashboard">2. Open the dashboard</a></h2>
+<p>Visit <a href="http://localhost:8080">http://localhost:8080</a>. Log in as <code>admin</code> / <code>change-me</code>.</p>
+<p>You should see the <strong>Jobs</strong> tab. The header shows your username + role, a
+dark/light theme toggle (☾/☀), and tabs for <strong>Resources</strong>, <strong>Globals</strong>,
+<strong>API keys</strong>, <strong>Users</strong>, <strong>Audit</strong>.</p>
+<h2 id="3-create-a-job"><a class="header" href="#3-create-a-job">3. Create a job</a></h2>
+<p>Fill the "Create job" form:</p>
+<ul>
+<li><strong>name:</strong> <code>tick</code></li>
+<li><strong>cron expression:</strong> <code>*/1 * * * *</code></li>
+<li><strong>command:</strong> <code>date</code></li>
+</ul>
+<p>Click <strong>Create</strong>. Within ~60s, a run appears under the row. Click the row
+to expand the run detail with a live log tail.</p>
+<h2 id="4-trigger-via-cli"><a class="header" href="#4-trigger-via-cli">4. Trigger via CLI</a></h2>
+<p>Create an API key (admin → API keys tab → enter "ci" → <strong>Create</strong>). Copy
+the plaintext token (it's only shown once).</p>
+<pre><code class="language-bash">export RSCHED_TOKEN=&lt;paste-token&gt;
+rusty-sched cli list
+rusty-sched cli trigger tick
+rusty-sched cli runs tick
+</code></pre>
+<h2 id="5-try-a-condition-expression"><a class="header" href="#5-try-a-condition-expression">5. Try a condition expression</a></h2>
+<pre><code class="language-bash">rusty-sched cli global set IS_RUN_DAY y
+
+cat &gt; downstream.json &lt;&lt;EOF
+{
+  "name": "downstream",
+  "trigger": {"kind": "condition", "expr": "success(tick) and value(IS_RUN_DAY)"},
+  "cmd": "echo downstream fired"
+}
+EOF
+rusty-sched cli apply -f downstream.json
+</code></pre>
+<p><code>downstream</code> fires on the next tick where <code>tick</code>'s most recent run is
+<code>Success</code> AND the global <code>IS_RUN_DAY</code> evaluates truthy.</p>
+<h2 id="whats-next"><a class="header" href="#whats-next">What's next</a></h2>
+<ul>
+<li>Read <a href="./triggers.html">Triggers</a>, <a href="./boxes.html">Boxes</a>, and
+<a href="./conditions.html">Condition DSL</a> for the Autosys-parity surface.</li>
+<li>Read <a href="./jil.html">JIL parser</a> if you have existing Autosys job definitions.</li>
+<li>Read <a href="./deployment.html">Deployment</a> for systemd / launchd / Windows service
+setup.</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="install.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="jobs.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="install.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="jobs.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+    </div>
+    </body>
+</html>

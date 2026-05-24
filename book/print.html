@@ -1,0 +1,1516 @@
+<!DOCTYPE HTML>
+<html lang="en" class="rust" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>rusty-sched</title>
+        <meta name="robots" content="noindex">
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="Reliable job scheduler in Rust — OSS Autosys with a Cronicle-grade UI.">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+        <link rel="stylesheet" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "ayu" : "rust";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('rust')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="introduction.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Getting Started</li><li class="chapter-item expanded "><a href="install.html">Install</a></li><li class="chapter-item expanded "><a href="quickstart.html">Quickstart</a></li><li class="chapter-item expanded affix "><li class="part-title">Concepts</li><li class="chapter-item expanded "><a href="jobs.html">Jobs</a></li><li class="chapter-item expanded "><a href="triggers.html">Triggers</a></li><li class="chapter-item expanded "><a href="boxes.html">Boxes</a></li><li class="chapter-item expanded "><a href="calendars.html">Calendars</a></li><li class="chapter-item expanded "><a href="resources.html">Virtual resources</a></li><li class="chapter-item expanded "><a href="globals.html">Global variables</a></li><li class="chapter-item expanded "><a href="conditions.html">Condition DSL</a></li><li class="chapter-item expanded "><a href="alerts.html">Alerts + SLA</a></li><li class="chapter-item expanded affix "><li class="part-title">Operating</li><li class="chapter-item expanded "><a href="api.html">REST API</a></li><li class="chapter-item expanded "><a href="cli.html">CLI reference</a></li><li class="chapter-item expanded "><a href="jil.html">JIL parser</a></li><li class="chapter-item expanded "><a href="sendevent.html">sendevent / autorep</a></li><li class="chapter-item expanded "><a href="auth.html">Auth + RBAC + API keys</a></li><li class="chapter-item expanded "><a href="deployment.html">Deployment</a></li><li class="chapter-item expanded "><a href="troubleshooting.html">Troubleshooting</a></li><li class="chapter-item expanded affix "><li class="part-title">Reference</li><li class="chapter-item expanded "><a href="architecture.html">Architecture</a></li><li class="chapter-item expanded "><a href="compat.html">Compatibility w/ Autosys + Cronicle</a></li><li class="chapter-item expanded "><a href="roadmap.html">Roadmap</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">rusty-sched</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/jdp5949/rusty-sched" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="introduction"><a class="header" href="#introduction">Introduction</a></h1>
+<p><strong>rusty-sched</strong> is an open-source job scheduler written in Rust. It ships as a
+single binary that runs on Linux, macOS, and Windows. The goal is straightforward:
+<strong>the operational ergonomics of CA AutoSys + the dashboard UX of Cronicle, with
+none of the enterprise license tax or Node.js footprint.</strong></p>
+<h2 id="what-you-get-out-of-the-box"><a class="header" href="#what-you-get-out-of-the-box">What you get out of the box</a></h2>
+<ul>
+<li>A scheduler tick loop that fires jobs on cron / interval / one-shot / file /
+webhook / manual / DAG-dependency / condition-expression triggers.</li>
+<li>A REST API, a React-based dashboard, a CLI client, and an Autosys-style
+<code>sendevent</code> / <code>autorep</code> parity layer — all served from the same binary.</li>
+<li>Boxes (job containers) with <code>box_success</code> / <code>box_failure</code> rollup rules and
+terminator semantics.</li>
+<li>Exit-code policies (<code>max_exit_success</code>, <code>fail_codes</code>, <code>condition_code</code>),
+exclude calendars, <code>must_start_times</code> / <code>must_complete_times</code>.</li>
+<li>A condition DSL with look-back (<code>success(jobA, 01.30)</code>) and run counts
+(<code>numrun</code>, <code>numsuc</code>, <code>numfail</code>).</li>
+<li>Virtual resources (named counters with fixed capacity) — jobs declare
+claims; scheduler acquires atomically before dispatch.</li>
+<li>Global variables (<code>value(name)</code> in conditions, <code>sendevent SET_GLOBAL</code> parity).</li>
+<li>bcrypt users + sessions + API keys + RBAC (admin / operator / viewer) +
+audit log on every mutation.</li>
+<li>Live log tail over WebSocket; per-run peak RSS + CPU time captured via
+<code>getrusage</code>.</li>
+<li>JIL parser (Autosys text DSL) for bulk job import.</li>
+<li>A cross-platform installer pipeline + GitHub release artifacts on every tag.</li>
+</ul>
+<h2 id="who-its-for"><a class="header" href="#who-its-for">Who it's for</a></h2>
+<p>You're running batch workloads on Linux / macOS / Windows and you've
+outgrown plain <code>cron</code> but don't want to:</p>
+<ul>
+<li>Pay six figures for AutoSys / Control-M / Tidal.</li>
+<li>Run a Node.js stack just for Cronicle's UI.</li>
+<li>Build a custom scheduler around Airflow / Prefect / Temporal for what is
+essentially "cron with dependencies and a web UI."</li>
+</ul>
+<h2 id="what-rusty-sched-is-not"><a class="header" href="#what-rusty-sched-is-not">What rusty-sched is NOT</a></h2>
+<ul>
+<li><strong>A workflow engine for data pipelines.</strong> Use Airflow / Dagster / Prefect.</li>
+<li><strong>A general-purpose actor system.</strong> Use Temporal / Cadence.</li>
+<li><strong>A container orchestrator.</strong> Use Kubernetes / Nomad.</li>
+</ul>
+<p>rusty-sched is a <em>job scheduler</em> in the operational, batch-processing sense:
+"start this command at this time on this host, retry it, watch its exit code,
+alert me when it breaks, give me a dashboard."</p>
+<h2 id="license--credit"><a class="header" href="#license--credit">License + credit</a></h2>
+<p>MIT. Inspired by Cronicle's UX (live log tail, dashboard tabs, plugin idea)
+and by Autosys's JIL grammar + box / condition semantics. Both are referenced
+throughout these docs.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="install"><a class="header" href="#install">Install</a></h1>
+<h2 id="pre-built-binary-recommended"><a class="header" href="#pre-built-binary-recommended">Pre-built binary (recommended)</a></h2>
+<p>Every release tag (<code>v0.X.Y</code>) publishes binaries for:</p>
+<ul>
+<li>Linux x86_64 (gnu + musl)</li>
+<li>macOS x86_64 + aarch64</li>
+<li>Windows x86_64</li>
+</ul>
+<p>Grab one from the <a href="https://github.com/jdp5949/rusty-sched/releases">Releases page</a>
+or use the one-liners:</p>
+<h3 id="linux--macos"><a class="header" href="#linux--macos">Linux / macOS</a></h3>
+<pre><code class="language-bash">curl -fsSL https://github.com/jdp5949/rusty-sched/releases/latest/download/install.sh | sh
+</code></pre>
+<h3 id="windows-powershell"><a class="header" href="#windows-powershell">Windows (PowerShell)</a></h3>
+<pre><code class="language-powershell">irm https://github.com/jdp5949/rusty-sched/releases/latest/download/install.ps1 | iex
+</code></pre>
+<p>The installer drops <code>rusty-sched</code> into <code>~/.local/bin</code> (unix) or
+<code>%LOCALAPPDATA%\Programs\rusty-sched\</code> (windows). Add it to your PATH if it
+isn't already.</p>
+<h2 id="from-source"><a class="header" href="#from-source">From source</a></h2>
+<p>Requires Rust 1.79+:</p>
+<pre><code class="language-bash">git clone https://github.com/jdp5949/rusty-sched
+cd rusty-sched
+cargo install --path crates/rsched-bin
+</code></pre>
+<h2 id="docker"><a class="header" href="#docker">Docker</a></h2>
+<pre><code class="language-bash">docker run -d --name rusty-sched \
+  -p 8080:8080 \
+  -e RSCHED_ADMIN_PASSWORD=change-me \
+  -v rusty-sched-data:/data \
+  ghcr.io/jdp5949/rusty-sched:latest
+</code></pre>
+<p>Data dir defaults to <code>/data</code> inside the container — mount a volume to
+preserve the SQLite DB across restarts.</p>
+<h2 id="service-installation"><a class="header" href="#service-installation">Service installation</a></h2>
+<p>Once you have the binary on PATH:</p>
+<pre><code class="language-bash">sudo rusty-sched service install   # systemd / launchd / Windows service
+sudo systemctl start rusty-sched-server  # linux
+</code></pre>
+<p>Service units live under <code>/etc/systemd/system/rusty-sched-server.service</code>
+(linux), <code>/Library/LaunchDaemons/io.rustysched.server.plist</code> (macOS), and
+register via <code>windows-service</code> on Windows.</p>
+<h2 id="verify"><a class="header" href="#verify">Verify</a></h2>
+<pre><code class="language-bash">rusty-sched version
+rusty-sched cli --url http://localhost:8080 list
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="quickstart"><a class="header" href="#quickstart">Quickstart</a></h1>
+<p>Sixty seconds to a running scheduler with one job firing every minute.</p>
+<h2 id="1-start-the-server"><a class="header" href="#1-start-the-server">1. Start the server</a></h2>
+<pre><code class="language-bash">RSCHED_ADMIN_PASSWORD=change-me cargo run -p rusty-sched -- server
+</code></pre>
+<p>Or, if you installed the binary:</p>
+<pre><code class="language-bash">RSCHED_ADMIN_PASSWORD=change-me rusty-sched server
+</code></pre>
+<p>The first boot creates an <code>admin</code> user, opens a SQLite DB under the OS data
+dir (e.g. <code>~/Library/Application Support/io.rustysched.rusty-sched/rusty.db</code>
+on macOS), and starts the HTTP server on <code>0.0.0.0:8080</code>.</p>
+<h2 id="2-open-the-dashboard"><a class="header" href="#2-open-the-dashboard">2. Open the dashboard</a></h2>
+<p>Visit <a href="http://localhost:8080">http://localhost:8080</a>. Log in as <code>admin</code> / <code>change-me</code>.</p>
+<p>You should see the <strong>Jobs</strong> tab. The header shows your username + role, a
+dark/light theme toggle (☾/☀), and tabs for <strong>Resources</strong>, <strong>Globals</strong>,
+<strong>API keys</strong>, <strong>Users</strong>, <strong>Audit</strong>.</p>
+<h2 id="3-create-a-job"><a class="header" href="#3-create-a-job">3. Create a job</a></h2>
+<p>Fill the "Create job" form:</p>
+<ul>
+<li><strong>name:</strong> <code>tick</code></li>
+<li><strong>cron expression:</strong> <code>*/1 * * * *</code></li>
+<li><strong>command:</strong> <code>date</code></li>
+</ul>
+<p>Click <strong>Create</strong>. Within ~60s, a run appears under the row. Click the row
+to expand the run detail with a live log tail.</p>
+<h2 id="4-trigger-via-cli"><a class="header" href="#4-trigger-via-cli">4. Trigger via CLI</a></h2>
+<p>Create an API key (admin → API keys tab → enter "ci" → <strong>Create</strong>). Copy
+the plaintext token (it's only shown once).</p>
+<pre><code class="language-bash">export RSCHED_TOKEN=&lt;paste-token&gt;
+rusty-sched cli list
+rusty-sched cli trigger tick
+rusty-sched cli runs tick
+</code></pre>
+<h2 id="5-try-a-condition-expression"><a class="header" href="#5-try-a-condition-expression">5. Try a condition expression</a></h2>
+<pre><code class="language-bash">rusty-sched cli global set IS_RUN_DAY y
+
+cat &gt; downstream.json &lt;&lt;EOF
+{
+  "name": "downstream",
+  "trigger": {"kind": "condition", "expr": "success(tick) and value(IS_RUN_DAY)"},
+  "cmd": "echo downstream fired"
+}
+EOF
+rusty-sched cli apply -f downstream.json
+</code></pre>
+<p><code>downstream</code> fires on the next tick where <code>tick</code>'s most recent run is
+<code>Success</code> AND the global <code>IS_RUN_DAY</code> evaluates truthy.</p>
+<h2 id="whats-next"><a class="header" href="#whats-next">What's next</a></h2>
+<ul>
+<li>Read <a href="./triggers.html">Triggers</a>, <a href="./boxes.html">Boxes</a>, and
+<a href="./conditions.html">Condition DSL</a> for the Autosys-parity surface.</li>
+<li>Read <a href="./jil.html">JIL parser</a> if you have existing Autosys job definitions.</li>
+<li>Read <a href="./deployment.html">Deployment</a> for systemd / launchd / Windows service
+setup.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="jobs"><a class="header" href="#jobs">Jobs</a></h1>
+<p>A <strong>Job</strong> is the unit a user schedules. Every job has:</p>
+<div class="table-wrapper"><table><thead><tr><th>Field</th><th>Purpose</th></tr></thead><tbody>
+<tr><td><code>name</code></td><td>Unique identifier visible in CLI, alerts, conditions, JIL. <code>[A-Za-z0-9_.-]{1..200}</code>.</td></tr>
+<tr><td><code>cmd</code> + <code>args</code></td><td>The command line to execute.</td></tr>
+<tr><td><code>shell</code></td><td><code>auto</code> (default) / <code>sh</code> / <code>bash</code> / <code>cmd</code> / <code>powershell</code> / <code>none</code> (direct exec).</td></tr>
+<tr><td><code>cwd</code> + <code>env</code></td><td>Working directory + environment variables.</td></tr>
+<tr><td><code>trigger</code></td><td>What causes the job to run — see <a href="./triggers.html">Triggers</a>.</td></tr>
+<tr><td><code>target</code></td><td>Where to run — currently <code>any</code> (local executor) only. mTLS gRPC agents are M4-full.</td></tr>
+<tr><td><code>timeout_secs</code></td><td>Hard limit — process is killed via <code>start_kill()</code> on expiry. <code>0</code> disables.</td></tr>
+<tr><td><code>sla_secs</code></td><td>Soft SLA — fires <code>OnSlaMiss</code> if the run exceeds it. <code>0</code> disables.</td></tr>
+<tr><td><code>retry</code></td><td><code>max_attempts</code> + <code>backoff</code> ({none / fixed / exponential}).</td></tr>
+<tr><td><code>misfire</code></td><td>What to do for fires missed while the server was down: <code>skip</code> / <code>fire_once</code> (default) / <code>fire_all_missed</code>.</td></tr>
+<tr><td><code>paused</code></td><td>Pause without delete. Tick loop skips paused jobs.</td></tr>
+<tr><td><code>alerts</code></td><td>Subscribed events + delivery channels (Slack / webhook / SMTP).</td></tr>
+<tr><td><code>box_id</code></td><td>Optional <a href="./boxes.html">Box</a> membership.</td></tr>
+<tr><td><code>dependencies</code></td><td>Upstream <code>DepEdge</code>s for ordering (in addition to <code>Dep</code> triggers).</td></tr>
+<tr><td><code>calendar_id</code></td><td>Include calendar — job runs only when this allows.</td></tr>
+<tr><td><code>exclude_calendar_id</code></td><td>Exclude calendar — job blocked when this allows.</td></tr>
+<tr><td><code>must_start_times</code> / <code>must_complete_times</code></td><td>Wall-clock deadlines for SLA alerts.</td></tr>
+<tr><td><code>exit_policy</code></td><td><code>max_exit_success</code> + <code>fail_codes</code> + <code>condition_code</code>.</td></tr>
+<tr><td><code>resource_claims</code></td><td>Virtual-resource counters to acquire before dispatch.</td></tr>
+</tbody></table>
+</div>
+<h2 id="lifecycle-of-a-run"><a class="header" href="#lifecycle-of-a-run">Lifecycle of a run</a></h2>
+<ol>
+<li><strong>Tick loop</strong> finds due jobs every 1s.</li>
+<li><strong>Calendar check</strong> — include must allow <code>now</code>, exclude must NOT.</li>
+<li><strong>Resource acquire</strong> — atomic transaction over <code>resource_holds</code>.</li>
+<li><strong>Run row inserted</strong> (<code>state=Queued</code>).</li>
+<li><strong>Dispatcher</strong> receives the <code>DispatchIntent</code> and spawns the process.</li>
+<li><strong>State → Running</strong>, <code>started_at</code> set, logs streamed to <code>run_logs</code>.</li>
+<li><strong>Process exits</strong> → exit code mapped to <code>RunState</code> via <code>ExitCodePolicy</code>
+(<code>Success</code> / <code>Failed</code> / <code>Conditional</code>).</li>
+<li><strong>Resources released</strong>, retry attempted if policy allows.</li>
+</ol>
+<h2 id="rest-surface"><a class="header" href="#rest-surface">REST surface</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Method</th><th>Path</th><th>Notes</th></tr></thead><tbody>
+<tr><td>GET</td><td><code>/api/v1/jobs</code></td><td>List all (auth required)</td></tr>
+<tr><td>POST</td><td><code>/api/v1/jobs</code></td><td>Create (admin/operator)</td></tr>
+<tr><td>GET</td><td><code>/api/v1/jobs/:id</code></td><td>Fetch by id</td></tr>
+<tr><td>GET</td><td><code>/api/v1/jobs/by-name/:name</code></td><td>Fetch by name</td></tr>
+<tr><td>PUT</td><td><code>/api/v1/jobs/:id</code></td><td>Replace (admin/operator)</td></tr>
+<tr><td>DELETE</td><td><code>/api/v1/jobs/:id</code></td><td>Delete (admin/operator)</td></tr>
+<tr><td>POST</td><td><code>/api/v1/jobs/:id/pause</code></td><td>Set <code>paused=true</code></td></tr>
+<tr><td>POST</td><td><code>/api/v1/jobs/:id/resume</code></td><td>Clear <code>paused</code></td></tr>
+<tr><td>POST</td><td><code>/api/v1/jobs/:id/trigger</code></td><td>Set <code>next_fire_at=now</code></td></tr>
+<tr><td>GET</td><td><code>/api/v1/jobs/:id/runs</code></td><td>Last 100 runs</td></tr>
+<tr><td>GET</td><td><code>/api/v1/stats/jobs/:id</code></td><td>success-rate + p50/p99 + sparkline outcomes</td></tr>
+</tbody></table>
+</div>
+<p>Writes audit-log on every successful call: <code>job.create</code>, <code>job.update</code>,
+<code>job.delete</code>, <code>job.pause</code>, <code>job.resume</code>, <code>job.trigger</code>.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="triggers"><a class="header" href="#triggers">Triggers</a></h1>
+<p>A trigger answers: <strong>what causes this job to fire?</strong> Stored on every job as
+a tagged union; the scheduler walks each kind every tick.</p>
+<h2 id="cron"><a class="header" href="#cron"><code>cron</code></a></h2>
+<p>Standard cron expression in 5- or 6-field form. Optional IANA timezone.</p>
+<pre><code class="language-json">{"kind": "cron", "expr": "*/5 * * * *", "timezone": "America/New_York"}
+</code></pre>
+<ul>
+<li>Empty <code>expr</code> rejected at validation.</li>
+<li>Unknown timezone rejected.</li>
+<li><code>chrono-tz</code> resolves DST transitions correctly.</li>
+</ul>
+<h2 id="interval"><a class="header" href="#interval"><code>interval</code></a></h2>
+<p>Fixed period between fires.</p>
+<pre><code class="language-json">{"kind": "interval", "every": 300, "start_at": "2026-05-23T02:00:00Z"}
+</code></pre>
+<ul>
+<li><code>every</code> is in seconds. Cannot be zero.</li>
+<li><code>start_at</code> optional — defaults to <code>now + every</code>.</li>
+</ul>
+<h2 id="one_shot"><a class="header" href="#one_shot"><code>one_shot</code></a></h2>
+<p>Single fire at a wall-clock time.</p>
+<pre><code class="language-json">{"kind": "one_shot", "at": "2026-06-01T09:00:00Z"}
+</code></pre>
+<h2 id="manual"><a class="header" href="#manual"><code>manual</code></a></h2>
+<p>Never fires on its own. Trigger via REST <code>POST /jobs/:id/trigger</code> or CLI
+<code>rusty-sched cli trigger &lt;name&gt;</code> or Autosys-style
+<code>sendevent &lt;name&gt; STARTJOB</code>.</p>
+<pre><code class="language-json">{"kind": "manual"}
+</code></pre>
+<h2 id="dep"><a class="header" href="#dep"><code>dep</code></a></h2>
+<p>Fires when an upstream job's dependencies are satisfied per
+<code>Job.dependencies</code> edges.</p>
+<pre><code class="language-json">{"kind": "dep", "on": ["01J...", "01J..."]}
+</code></pre>
+<p>Use <a href="./conditions.html">Condition DSL</a> for richer logic.</p>
+<h2 id="condition"><a class="header" href="#condition"><code>condition</code></a></h2>
+<p>Most flexible: an Autosys-style condition expression evaluated against
+upstream job state + globals every tick.</p>
+<pre><code class="language-json">{"kind": "condition", "expr": "success(jobA, 01.30) and notrunning(jobB) and value(IS_RUN_DAY)"}
+</code></pre>
+<p>Parsed by <code>rsched-conditions</code>. See <a href="./conditions.html">Condition DSL</a> for the
+full grammar.</p>
+<h2 id="file"><a class="header" href="#file"><code>file</code></a></h2>
+<p>Fires on filesystem event. Reserved for v0.3.3 (file watcher integration).</p>
+<pre><code class="language-json">{"kind": "file", "path": "/data/incoming", "event": "create"}
+</code></pre>
+<h2 id="webhook"><a class="header" href="#webhook"><code>webhook</code></a></h2>
+<p>Fires when an HTTP POST hits a server-issued URL. Reserved for v0.3.3.</p>
+<pre><code class="language-json">{"kind": "webhook", "slug": "long-opaque-path-segment", "secret": "hmac-secret-16+ chars"}
+</code></pre>
+<p>The slug must be ≥ 8 chars and the secret ≥ 16 chars. HMAC-SHA256 of the
+body is checked against the <code>X-Sig</code> header on each request.</p>
+<h2 id="misfire-policy"><a class="header" href="#misfire-policy">Misfire policy</a></h2>
+<p><code>Job.misfire</code> controls what the tick loop does for fires that were missed
+because the server was down or the job was paused:</p>
+<div class="table-wrapper"><table><thead><tr><th>Policy</th><th>Behavior</th></tr></thead><tbody>
+<tr><td><code>skip</code></td><td>Drop missed fires</td></tr>
+<tr><td><code>fire_once</code> (default)</td><td>Fire exactly once on resume</td></tr>
+<tr><td><code>fire_all_missed</code></td><td>Fire every missed fire (rare — be careful)</td></tr>
+</tbody></table>
+</div><div style="break-before: page; page-break-before: always;"></div><h1 id="boxes"><a class="header" href="#boxes">Boxes</a></h1>
+<p>A <strong>Box</strong> is an Autosys-style container of jobs. The box has a derived
+state computed from its children:</p>
+<div class="table-wrapper"><table><thead><tr><th>State</th><th>Rule</th></tr></thead><tbody>
+<tr><td><code>Paused</code></td><td>Box is paused (children skipped).</td></tr>
+<tr><td><code>Failed</code></td><td>Custom <code>box_failure_expr</code> evaluates true, OR default: any child failed/killed/lost.</td></tr>
+<tr><td><code>Success</code></td><td>Custom <code>box_success_expr</code> evaluates true, OR default: all children succeeded.</td></tr>
+<tr><td><code>Running</code></td><td>Any child queued or running (default rule).</td></tr>
+<tr><td><code>Pending</code></td><td>No children, or some without a recorded state.</td></tr>
+</tbody></table>
+</div>
+<p>Eval order: paused → custom failure expr → custom success expr → default
+rules. Failure wins over success when both are set.</p>
+<h2 id="fields"><a class="header" href="#fields">Fields</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Field</th><th>Purpose</th></tr></thead><tbody>
+<tr><td><code>name</code></td><td>Unique identifier.</td></tr>
+<tr><td><code>parent</code></td><td>Optional parent box for nesting.</td></tr>
+<tr><td><code>paused</code></td><td>If true, box (and all children) is paused.</td></tr>
+<tr><td><code>box_success_expr</code></td><td>Condition expression evaluated against children.</td></tr>
+<tr><td><code>box_failure_expr</code></td><td>Condition expression evaluated against children.</td></tr>
+<tr><td><code>box_terminator</code></td><td>Kill running children on box failure. <em>(runtime wiring deferred.)</em></td></tr>
+<tr><td><code>job_terminator</code></td><td>Kill children when containing box fails. <em>(runtime wiring deferred.)</em></td></tr>
+<tr><td><code>auto_hold</code></td><td>Auto-hold children when box transitions to Running. <em>(runtime wiring deferred.)</em></td></tr>
+</tbody></table>
+</div>
+<h2 id="expressions"><a class="header" href="#expressions">Expressions</a></h2>
+<p>The box's success/failure expressions are the same <a href="./conditions.html">Condition DSL</a>
+used by <code>Condition</code> triggers — but they're evaluated against <strong>child job
+states only</strong>, not the whole job universe. Example:</p>
+<pre><code class="language-text">box_success: success(child_a) and success(child_b)
+box_failure: failure(child_a) or failure(child_b)
+</code></pre>
+<h2 id="jil"><a class="header" href="#jil">JIL</a></h2>
+<pre><code class="language-jil">insert_job: prod_pipeline   job_type: box
+description: "Main nightly batch"
+box_success: success(child_a) and success(child_b)
+box_failure: failure(child_a)
+box_terminator: y
+auto_hold: y
+
+insert_job: child_a   job_type: c
+box_name: prod_pipeline
+command: /opt/etl/a.sh
+
+insert_job: child_b   job_type: c
+box_name: prod_pipeline
+command: /opt/etl/b.sh
+</code></pre>
+<h2 id="programmatic"><a class="header" href="#programmatic">Programmatic</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use rsched_scheduler::evaluate_box_state;
+use std::collections::HashMap;
+use rsched_core::{RunState, BoxId, JobBox};
+
+let box_def = JobBox { /* … box_success_expr, box_failure_expr … */ };
+let children = vec![/* Job records */];
+let mut states = HashMap::new();
+states.insert("child_a".into(), RunState::Success);
+states.insert("child_b".into(), RunState::Failed);
+let state = evaluate_box_state(&amp;box_def, &amp;children, &amp;states);
+<span class="boring">}</span></code></pre></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="calendars"><a class="header" href="#calendars">Calendars</a></h1>
+<p>A <strong>Calendar</strong> is a named set of rules that says when a job is allowed to
+run. Every job can reference up to two calendars:</p>
+<ul>
+<li><code>calendar_id</code> — <strong>include</strong> calendar. Job runs only when this allows <code>now</code>.</li>
+<li><code>exclude_calendar_id</code> — <strong>exclude</strong> calendar. Job blocked when this allows <code>now</code>.</li>
+</ul>
+<p>Tick loop loads all calendars once per tick and filters every due job
+through <code>calendar_allows(&amp;job, now, &amp;cals)</code> before dispatch. Blocked jobs
+advance <code>next_fire_at</code> (cron path) and skip — Autosys "skip then next
+normal fire" semantics.</p>
+<h2 id="rule-kinds"><a class="header" href="#rule-kinds">Rule kinds</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub enum CalendarRule {
+    Weekdays { days: Vec&lt;u8&gt; },        // 1=Mon .. 7=Sun
+    Blackout { dates: Vec&lt;NaiveDate&gt; },
+    TimeWindow { start: NaiveTime, end: NaiveTime },
+}
+<span class="boring">}</span></code></pre></pre>
+<p>Rules within a calendar are <strong>AND</strong>-combined. A weekday calendar with a
+single blackout date allows every Monday–Sunday <em>except</em> that date.</p>
+<h2 id="common-patterns"><a class="header" href="#common-patterns">Common patterns</a></h2>
+<h3 id="business-days-only"><a class="header" href="#business-days-only">"Business days only"</a></h3>
+<pre><code class="language-json">{
+  "name": "business_days",
+  "rules": [
+    {"kind": "weekdays", "days": [1,2,3,4,5]}
+  ]
+}
+</code></pre>
+<p>Attach as <code>calendar_id</code> (include).</p>
+<h3 id="us-federal-holidays"><a class="header" href="#us-federal-holidays">"US federal holidays"</a></h3>
+<pre><code class="language-json">{
+  "name": "us_holidays",
+  "rules": [
+    {"kind": "blackout", "dates": ["2026-07-04", "2026-12-25", "2026-01-01"]}
+  ]
+}
+</code></pre>
+<p>Attach as <code>exclude_calendar_id</code>. Holidays satisfy the no-rule "always
+allow" → block the job.</p>
+<h3 id="maintenance-window-24-am-utc"><a class="header" href="#maintenance-window-24-am-utc">"Maintenance window 2–4 am UTC"</a></h3>
+<pre><code class="language-json">{
+  "name": "maintenance",
+  "rules": [
+    {"kind": "time_window", "start": "02:00:00", "end": "04:00:00"}
+  ]
+}
+</code></pre>
+<h2 id="cli"><a class="header" href="#cli">CLI</a></h2>
+<p>Direct REST calls for now — UI page is a future v0.7.x slice.</p>
+<pre><code class="language-bash">curl -sX POST -H "Authorization: Bearer $RSCHED_TOKEN" \
+     -H "content-type: application/json" \
+     -d '{"name":"business_days","rules":[{"kind":"weekdays","days":[1,2,3,4,5]}]}' \
+     http://localhost:8080/api/v1/calendars
+</code></pre>
+<h2 id="jil-1"><a class="header" href="#jil-1">JIL</a></h2>
+<pre><code class="language-jil">exclude_calendar: us_holidays
+</code></pre>
+<p>The JIL parser keeps the calendar <strong>name</strong> in <code>JobSpec.exclude_calendar</code>
+and emits a warning; the apply step must resolve the name to a
+<code>CalendarId</code> via <code>CalendarRepo::get_by_name()</code> before persisting.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="virtual-resources"><a class="header" href="#virtual-resources">Virtual resources</a></h1>
+<p>A <strong>virtual resource</strong> is a named counter with a fixed capacity. Jobs
+declare <code>ResourceClaim { resource_name, units }</code>. Before dispatch the
+scheduler attempts to acquire every claim <strong>atomically</strong> inside a single
+transaction. If any claim exceeds remaining capacity the job is left
+queued (next_fire_at unchanged) and retried next tick.</p>
+<h2 id="why"><a class="header" href="#why">Why</a></h2>
+<p>Classic use cases:</p>
+<ul>
+<li><strong>DB connection pool</strong> — <code>resources: "db.connections(1)"</code> caps concurrent
+jobs hitting the warehouse.</li>
+<li><strong>License keys</strong> — <code>resources: "matlab(1)"</code> serializes runs that need
+the one available license.</li>
+<li><strong>GPU slots</strong> — <code>resources: "gpu(1)"</code> ensures one training job per GPU.</li>
+</ul>
+<h2 id="create"><a class="header" href="#create">Create</a></h2>
+<pre><code class="language-bash">curl -sX POST -H "Authorization: Bearer $RSCHED_TOKEN" \
+     -H "content-type: application/json" \
+     -d '{"name":"db.connections","capacity":5,"description":"Snowflake pool"}' \
+     http://localhost:8080/api/v1/resources
+</code></pre>
+<p>Or use the <strong>Resources</strong> UI tab (admin / operator).</p>
+<h2 id="claim-from-a-job"><a class="header" href="#claim-from-a-job">Claim from a job</a></h2>
+<p>REST <code>Job.resource_claims</code>:</p>
+<pre><code class="language-json">{
+  "resource_claims": [
+    {"resource_name": "db.connections", "units": 1},
+    {"resource_name": "gpu", "units": 2}
+  ]
+}
+</code></pre>
+<p>JIL:</p>
+<pre><code class="language-jil">resources: "db.connections(1), gpu(2)"
+</code></pre>
+<p>A bare name (no <code>(N)</code>) defaults to 1 unit.</p>
+<h2 id="lifecycle"><a class="header" href="#lifecycle">Lifecycle</a></h2>
+<ol>
+<li>Tick finds job due → <code>ResourceRepo::try_acquire(run_id, claims)</code>.</li>
+<li>If any claim doesn't fit, return <code>Ok(false)</code>, rollback the transaction,
+skip dispatch. Run row is NOT inserted, <code>next_fire_at</code> unchanged.</li>
+<li>If all fit, hold rows are inserted, run is dispatched.</li>
+<li>On terminal run state (<code>Success</code> / <code>Failed</code> / <code>Killed</code> / <code>Lost</code>), the
+bin dispatch consumer calls <code>ResourceRepo::release(run_id)</code>.</li>
+<li>Also released if the dispatch queue overflows after acquire, or via
+<code>sendevent CHANGE_STATUS=killed</code>.</li>
+</ol>
+<h2 id="available-units"><a class="header" href="#available-units">Available units</a></h2>
+<p><code>GET /api/v1/resources</code> returns each resource with <code>available = capacity - SUM(units in resource_holds)</code>. The UI shows a capacity bar.</p>
+<h2 id="atomicity"><a class="header" href="#atomicity">Atomicity</a></h2>
+<p><code>try_acquire</code> runs inside <code>pool.begin()</code>. SQLite serializes transactions
+on a per-connection basis (WAL); Postgres uses standard MVCC. In either
+case, two concurrent ticks can't both succeed when only one slot is left.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="global-variables"><a class="header" href="#global-variables">Global variables</a></h1>
+<p>Globals are simple string key→value pairs persisted in the <code>globals</code> table.
+They power the <code>value(name)</code> operand in <a href="./conditions.html">conditions</a>, and
+provide an Autosys-compatible <code>sendevent SET_GLOBAL</code> workflow.</p>
+<h2 id="set--get--list--delete"><a class="header" href="#set--get--list--delete">Set / get / list / delete</a></h2>
+<p>UI: <strong>Globals</strong> tab.</p>
+<p>CLI:</p>
+<pre><code class="language-bash">rusty-sched cli global set IS_RUN_DAY y
+rusty-sched cli global set REGION us-east-1
+rusty-sched cli global list
+rusty-sched cli global delete IS_RUN_DAY
+</code></pre>
+<p>REST:</p>
+<pre><code class="language-bash">curl -sX POST -H "Authorization: Bearer $RSCHED_TOKEN" \
+     -d '{"name":"IS_RUN_DAY","value":"y"}' \
+     http://localhost:8080/api/v1/globals
+
+curl http://localhost:8080/api/v1/globals          # list
+curl http://localhost:8080/api/v1/globals/REGION   # get one
+curl -X DELETE -H "Authorization: Bearer $RSCHED_TOKEN" \
+     http://localhost:8080/api/v1/globals/REGION
+</code></pre>
+<h2 id="truthy-rule"><a class="header" href="#truthy-rule">Truthy rule</a></h2>
+<p><code>value(name)</code> in a condition expression returns:</p>
+<ul>
+<li><code>Some(true)</code>  — when the raw value is one of <code>y</code>, <code>yes</code>, <code>true</code>, <code>1</code>
+(case-insensitive, trimmed).</li>
+<li><code>Some(false)</code> — for any other value (including empty string).</li>
+<li><code>None</code>        — when the name is unknown. The condition stays unresolved
+(no fire).</li>
+</ul>
+<p>This matches Autosys's <code>value(VAR)="Y"</code> convention.</p>
+<h2 id="snapshot-semantics"><a class="header" href="#snapshot-semantics">Snapshot semantics</a></h2>
+<p>The scheduler loads every global into a per-tick snapshot when building
+<code>StoreUpstreamState</code>. Changes are visible on the <strong>next</strong> tick. Writes
+during a tick don't affect that tick's evaluation.</p>
+<h2 id="use-cases"><a class="header" href="#use-cases">Use cases</a></h2>
+<ul>
+<li><strong>Holiday switch.</strong> Cron-fire a job that sets <code>IS_RUN_DAY=n</code> on holidays;
+guard downstreams with <code>value(IS_RUN_DAY)</code>.</li>
+<li><strong>Region awareness.</strong> <code>value(REGION) = "us-east-1"</code> — wait, conditions
+don't support string comparison yet; use a boolean-style global instead
+(<code>IS_PROD=y</code>).</li>
+<li><strong>Feature flag.</strong> <code>value(FEAT_NEW_PIPELINE) and success(prep)</code> — flip
+the global to roll a release forward / backward.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="condition-dsl"><a class="header" href="#condition-dsl">Condition DSL</a></h1>
+<p>A condition expression is a small boolean language adapted from Autosys.
+It powers both the <code>Condition</code> trigger and the <code>box_success</code> / <code>box_failure</code>
+rules on a <a href="./boxes.html">Box</a>.</p>
+<h2 id="grammar"><a class="header" href="#grammar">Grammar</a></h2>
+<pre><code class="language-text">expr        = or_expr
+or_expr     = and_expr ('or' and_expr)*
+and_expr    = not_expr ('and' not_expr)*
+not_expr    = 'not' not_expr | atom
+atom        = '(' expr ')' | func_call
+func_call   = IDENT '(' job_name [ ',' lookback ] ')' [ cmp_op INT ]
+            | 'value' '(' name ')'
+lookback    = HH '.' MM
+cmp_op      = '=' | '!=' | '&lt;' | '&lt;=' | '&gt;' | '&gt;='
+</code></pre>
+<p>Keywords <code>and</code> / <code>or</code> / <code>not</code> are case-insensitive. The look-back operand
+uses Autosys-style <code>HH.MM</code> (hours.minutes, dot separator) and applies only
+to <code>success</code> / <code>failure</code> / <code>done</code> / <code>numrun</code> / <code>numsuc</code> / <code>numfail</code>.</p>
+<h2 id="functions"><a class="header" href="#functions">Functions</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Function</th><th>Aliases</th><th>Returns</th><th>Look-back</th></tr></thead><tbody>
+<tr><td><code>success(j)</code></td><td><code>s(j)</code></td><td>Last run succeeded</td><td>yes</td></tr>
+<tr><td><code>failure(j)</code></td><td><code>f(j)</code></td><td>Last run failed</td><td>yes</td></tr>
+<tr><td><code>done(j)</code></td><td><code>d(j)</code></td><td>Last run is terminal</td><td>yes</td></tr>
+<tr><td><code>running(j)</code></td><td><code>r(j)</code></td><td>Job currently running</td><td>no</td></tr>
+<tr><td><code>notrunning(j)</code></td><td><code>n(j)</code></td><td>Inverse of <code>running</code></td><td>no</td></tr>
+<tr><td><code>exitcode(j) &lt;op&gt; N</code></td><td>—</td><td>Last exit code comparison</td><td>no</td></tr>
+<tr><td><code>numrun(j) &lt;op&gt; N</code></td><td>—</td><td>Run count comparison</td><td>yes</td></tr>
+<tr><td><code>numsuc(j) &lt;op&gt; N</code></td><td>—</td><td>Success count comparison</td><td>yes</td></tr>
+<tr><td><code>numfail(j) &lt;op&gt; N</code></td><td>—</td><td>Failure count comparison</td><td>yes</td></tr>
+<tr><td><code>value(name)</code></td><td>—</td><td>Global variable truthy lookup</td><td>n/a</td></tr>
+</tbody></table>
+</div>
+<h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
+<pre><code class="language-text">success(prep)
+success(prep, 01.30) and notrunning(other)
+failure(jobA) or done(jobB, 00.30)
+exitcode(j) != 0
+numsuc(nightly, 24.00) &gt;= 3
+(success(a) or success(b)) and value(IS_RUN_DAY)
+</code></pre>
+<h2 id="look-back-semantics"><a class="header" href="#look-back-semantics">Look-back semantics</a></h2>
+<p>The scheduler caches up to <strong>200 recent runs per job</strong> in a per-tick
+snapshot. A look-back of <code>HH.MM</code> filters that history by <code>started_at &gt;= now - window</code>. Counts are exact within the cache window; if a job runs more than
+200 times within the window, older runs are truncated.</p>
+<h2 id="valuename-truthy-rule"><a class="header" href="#valuename-truthy-rule"><code>value(name)</code> truthy rule</a></h2>
+<p>Resolved from the <code>globals</code> table loaded once per tick. The string is
+treated as truthy if it matches (case-insensitive) <code>y</code> / <code>yes</code> / <code>true</code> /
+<code>1</code>; everything else is false. Unknown names return <code>None</code> (the expression
+stays unresolved, no fire).</p>
+<h2 id="setting-globals"><a class="header" href="#setting-globals">Setting globals</a></h2>
+<pre><code class="language-bash">rusty-sched cli global set IS_RUN_DAY y
+rusty-sched cli global set REGION us-east-1
+rusty-sched cli global list
+rusty-sched cli global delete IS_RUN_DAY
+</code></pre>
+<p>Or via REST:</p>
+<pre><code class="language-bash">curl -sX POST -H "Authorization: Bearer $RSCHED_TOKEN" \
+     -H "content-type: application/json" \
+     -d '{"name":"IS_RUN_DAY","value":"y"}' \
+     http://localhost:8080/api/v1/globals
+</code></pre>
+<h2 id="errors"><a class="header" href="#errors">Errors</a></h2>
+<ul>
+<li><code>ParseError::Unexpected</code> — bad token or trailing input.</li>
+<li><code>ParseError::UnknownFunction</code> — unrecognized function name.</li>
+<li><code>ParseError::BadLookback</code> — malformed <code>HH.MM</code> (minutes ≥ 60).</li>
+<li>Look-back on <code>running</code> / <code>notrunning</code> / <code>exitcode</code> / <code>value</code> is rejected.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="alerts--sla"><a class="header" href="#alerts--sla">Alerts + SLA</a></h1>
+<p>Every job carries an <code>alerts: AlertConfig</code> shaped like:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>struct AlertConfig {
+    events: Vec&lt;AlertEvent&gt;,     // which events to alert on
+    channels: Vec&lt;AlertChannel&gt;, // where to deliver
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="events"><a class="header" href="#events">Events</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Event</th><th>When it fires</th></tr></thead><tbody>
+<tr><td><code>on_failure</code></td><td>Run state == <code>Failed</code></td></tr>
+<tr><td><code>on_success</code></td><td>Run state == <code>Success</code></td></tr>
+<tr><td><code>on_sla_miss</code></td><td>Run exceeded <code>Job.sla_secs</code> while still running</td></tr>
+<tr><td><code>on_late_start</code></td><td>Run not started by <code>scheduled_for + grace_secs</code></td></tr>
+<tr><td><code>on_lost</code></td><td>Agent disappeared mid-run</td></tr>
+</tbody></table>
+</div>
+<h2 id="channels"><a class="header" href="#channels">Channels</a></h2>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>enum AlertChannel {
+    Email   { to: Vec&lt;String&gt; },
+    Slack   { webhook_url: String },
+    Webhook { url: String, secret: Option&lt;String&gt; },
+}
+<span class="boring">}</span></code></pre></pre>
+<ul>
+<li><strong>Slack</strong>: standard incoming-webhook URL. Posts a formatted message
+with job name, state, exit code, duration.</li>
+<li><strong>Webhook</strong>: generic POST. Body is JSON <code>AlertPayload</code>. If <code>secret</code> is
+set, an <code>X-Sig</code> header with HMAC-SHA256 of the body is added.</li>
+<li><strong>Email</strong>: requires SMTP config via <code>RSCHED_SMTP_HOST</code> /
+<code>RSCHED_SMTP_USER</code> / <code>RSCHED_SMTP_PASS</code> env vars at bin startup.</li>
+</ul>
+<p>All channels deliver concurrently via <code>rsched_alert::deliver_all</code> — one
+slow webhook doesn't block another.</p>
+<h2 id="sla-evaluation"><a class="header" href="#sla-evaluation">SLA evaluation</a></h2>
+<p>Helper: <code>rsched_alert::evaluate_sla(now, scheduled_for, started_at, sla_secs, late_start_grace_secs) -&gt; SlaBreach</code>.</p>
+<div class="table-wrapper"><table><thead><tr><th>Breach</th><th>Mapping</th></tr></thead><tbody>
+<tr><td><code>None</code></td><td>All good</td></tr>
+<tr><td><code>SlaMiss</code></td><td>Started + exceeded <code>sla_secs</code></td></tr>
+<tr><td><code>LateStart</code></td><td>Not started + waited &gt; <code>late_start_grace_secs</code></td></tr>
+</tbody></table>
+</div>
+<h2 id="must_times-sla"><a class="header" href="#must_times-sla"><code>must_times</code> SLA</a></h2>
+<p>For Autosys-style wall-clock SLAs (<code>must_start_times</code> / <code>must_complete_times</code>),
+the helper is <code>rsched_alert::evaluate_must_times</code>:</p>
+<ul>
+<li><code>LateStart</code> when <code>started_at == None</code> AND every <code>must_start_times</code> entry
+has passed for today.</li>
+<li><code>SlaMiss</code> when running past any <code>must_complete_time</code> that fell after
+the run started.</li>
+</ul>
+<p><em>Runtime wiring of these helpers into the tick loop + alert dispatch is
+deferred to a future slice. The helpers themselves are stable and unit-tested.</em></p>
+<h2 id="example"><a class="header" href="#example">Example</a></h2>
+<pre><code class="language-json">{
+  "alerts": {
+    "events": ["on_failure", "on_sla_miss"],
+    "channels": [
+      {"kind":"slack","webhook_url":"https://hooks.slack.com/services/T.../B.../..."},
+      {"kind":"email","to":["oncall@example.com"]}
+    ]
+  }
+}
+</code></pre>
+<p>JIL:</p>
+<pre><code class="language-jil">alarm_if_fail: y
+</code></pre>
+<p>Translates to <code>{ events: [OnFailure], channels: [] }</code> — you still need to
+add a Slack / email channel via REST.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="rest-api"><a class="header" href="#rest-api">REST API</a></h1>
+<p>Base path: <code>/api/v1/</code>. All responses are JSON. Authentication: cookie
+(<code>rsched_session</code>) from <code>/auth/login</code>, OR <code>Authorization: Bearer &lt;api_key&gt;</code> header.</p>
+<h2 id="auth"><a class="header" href="#auth">Auth</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Method</th><th>Path</th><th>Body</th><th>Returns</th></tr></thead><tbody>
+<tr><td>POST</td><td><code>/auth/login</code></td><td><code>{username, password}</code></td><td>sets <code>rsched_session</code> cookie + <code>{user_id, username, role}</code></td></tr>
+<tr><td>POST</td><td><code>/auth/logout</code></td><td>—</td><td>204, clears cookie</td></tr>
+<tr><td>GET</td><td><code>/auth/me</code></td><td>—</td><td><code>{user_id, username, role}</code> (401 if no auth)</td></tr>
+<tr><td>GET</td><td><code>/auth/api-keys</code></td><td>—</td><td>list of own keys (metadata only)</td></tr>
+<tr><td>POST</td><td><code>/auth/api-keys</code></td><td><code>{name, expires_at?}</code></td><td><strong>plaintext token shown once</strong></td></tr>
+<tr><td>DELETE</td><td><code>/auth/api-keys/:id</code></td><td>—</td><td>204 (must own the key)</td></tr>
+</tbody></table>
+</div>
+<h2 id="jobs-1"><a class="header" href="#jobs-1">Jobs</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Method</th><th>Path</th><th>Auth</th><th>Body</th><th>Notes</th></tr></thead><tbody>
+<tr><td>GET</td><td><code>/jobs</code></td><td>any</td><td>—</td><td>list all</td></tr>
+<tr><td>POST</td><td><code>/jobs</code></td><td>write</td><td><code>CreateJobReq</code></td><td>audit <code>job.create</code></td></tr>
+<tr><td>GET</td><td><code>/jobs/:id</code></td><td>any</td><td>—</td><td></td></tr>
+<tr><td>GET</td><td><code>/jobs/by-name/:name</code></td><td>any</td><td>—</td><td></td></tr>
+<tr><td>PUT</td><td><code>/jobs/:id</code></td><td>write</td><td><code>CreateJobReq</code></td><td>audit <code>job.update</code></td></tr>
+<tr><td>DELETE</td><td><code>/jobs/:id</code></td><td>write</td><td>—</td><td>audit <code>job.delete</code></td></tr>
+<tr><td>POST</td><td><code>/jobs/:id/pause</code></td><td>write</td><td>—</td><td>audit <code>job.pause</code></td></tr>
+<tr><td>POST</td><td><code>/jobs/:id/resume</code></td><td>write</td><td>—</td><td>audit <code>job.resume</code></td></tr>
+<tr><td>POST</td><td><code>/jobs/:id/trigger</code></td><td>write</td><td>—</td><td>sets <code>next_fire_at=now</code>, audit <code>job.trigger</code></td></tr>
+<tr><td>GET</td><td><code>/jobs/:id/runs</code></td><td>any</td><td>—</td><td>last 100 runs</td></tr>
+</tbody></table>
+</div>
+<h2 id="runs"><a class="header" href="#runs">Runs</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Method</th><th>Path</th><th>Auth</th><th>Body</th><th>Notes</th></tr></thead><tbody>
+<tr><td>GET</td><td><code>/runs/:id</code></td><td>any</td><td>—</td><td></td></tr>
+<tr><td>DELETE</td><td><code>/runs/:id</code></td><td>write</td><td>—</td><td><code>SIGKILL</code> via handle registry, audit <code>run.kill</code></td></tr>
+<tr><td>POST</td><td><code>/runs/:id/state</code></td><td>write</td><td><code>{state, exit_code?}</code></td><td>CHANGE_STATUS, audit <code>run.change_status</code></td></tr>
+<tr><td>POST</td><td><code>/runs/:id/signal</code></td><td>write</td><td><code>{signal}</code></td><td>SEND_SIGNAL, audit <code>run.signal</code></td></tr>
+<tr><td>GET</td><td><code>/runs/:id/logs</code></td><td>any</td><td><code>?from_seq&amp;limit</code></td><td>paginated rows</td></tr>
+<tr><td>GET</td><td><code>/runs/:id/logs/ws</code></td><td>any</td><td>—</td><td><strong>WebSocket</strong> — streams new log rows</td></tr>
+</tbody></table>
+</div>
+<h2 id="stats"><a class="header" href="#stats">Stats</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Method</th><th>Path</th><th>Returns</th></tr></thead><tbody>
+<tr><td>GET</td><td><code>/stats/jobs/:id</code></td><td>success-rate + p50/p99 + sparkline outcomes</td></tr>
+</tbody></table>
+</div>
+<h2 id="resources"><a class="header" href="#resources">Resources</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Method</th><th>Path</th><th>Auth</th><th>Notes</th></tr></thead><tbody>
+<tr><td>GET</td><td><code>/resources</code></td><td>any</td><td>list with <code>available</code></td></tr>
+<tr><td>POST</td><td><code>/resources</code></td><td>write</td><td><code>{name, capacity, description?}</code></td></tr>
+<tr><td>GET</td><td><code>/resources/:name</code></td><td>any</td><td>one resource w/ available</td></tr>
+<tr><td>DELETE</td><td><code>/resources/:name</code></td><td>write</td><td>cascades holds</td></tr>
+</tbody></table>
+</div>
+<h2 id="globals"><a class="header" href="#globals">Globals</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Method</th><th>Path</th><th>Auth</th><th>Notes</th></tr></thead><tbody>
+<tr><td>GET</td><td><code>/globals</code></td><td>any</td><td>list <code>{name, value, updated_at}</code></td></tr>
+<tr><td>POST</td><td><code>/globals</code></td><td>write</td><td><code>{name, value}</code> — upsert</td></tr>
+<tr><td>GET</td><td><code>/globals/:name</code></td><td>any</td><td>one global</td></tr>
+<tr><td>DELETE</td><td><code>/globals/:name</code></td><td>write</td><td></td></tr>
+</tbody></table>
+</div>
+<h2 id="users--audit-admin-only"><a class="header" href="#users--audit-admin-only">Users + audit (admin only)</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Method</th><th>Path</th><th>Body</th></tr></thead><tbody>
+<tr><td>GET</td><td><code>/users</code></td><td>—</td></tr>
+<tr><td>POST</td><td><code>/users</code></td><td><code>{username, password, role}</code></td></tr>
+<tr><td>GET</td><td><code>/audit</code></td><td>— (last 200 entries)</td></tr>
+</tbody></table>
+</div>
+<h2 id="health"><a class="header" href="#health">Health</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Method</th><th>Path</th></tr></thead><tbody>
+<tr><td>GET</td><td><code>/healthz</code></td></tr>
+<tr><td>GET</td><td><code>/readyz</code></td></tr>
+</tbody></table>
+</div>
+<h2 id="error-envelope"><a class="header" href="#error-envelope">Error envelope</a></h2>
+<pre><code class="language-json">{"error": "validation: bad job id"}
+</code></pre>
+<p>Status codes: 400 (validation), 401 (no auth), 403 (forbidden), 404 (not
+found), 500 (store / scheduler).</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="cli-reference"><a class="header" href="#cli-reference">CLI reference</a></h1>
+<p>The CLI is a thin client over the REST API.</p>
+<pre><code class="language-bash">rusty-sched cli --url http://localhost:8080 &lt;subcommand&gt;
+</code></pre>
+<p>Defaults: <code>--url</code> from <code>RSCHED_URL</code> env var or <code>http://localhost:8080</code>.
+Auth: <code>RSCHED_TOKEN</code> env var (API key from the UI), or none for read-only.</p>
+<h2 id="job-management"><a class="header" href="#job-management">Job management</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Command</th><th>What it does</th></tr></thead><tbody>
+<tr><td><code>list</code></td><td>List jobs (id + name + paused flag)</td></tr>
+<tr><td><code>apply -f spec.yaml</code></td><td>Create a job from YAML/JSON</td></tr>
+<tr><td><code>update &lt;name&gt; -f spec.yaml</code></td><td>Replace mutable fields</td></tr>
+<tr><td><code>show &lt;name&gt;</code></td><td>Print full job JSON</td></tr>
+<tr><td><code>delete &lt;name&gt;</code></td><td>Delete by name or ULID</td></tr>
+<tr><td><code>trigger &lt;name&gt;</code></td><td>Manually fire</td></tr>
+<tr><td><code>pause &lt;name&gt;</code> / <code>resume &lt;name&gt;</code></td><td>Toggle paused</td></tr>
+<tr><td><code>runs &lt;name&gt;</code></td><td>Last 100 runs table</td></tr>
+</tbody></table>
+</div>
+<h2 id="autosys-parity"><a class="header" href="#autosys-parity">Autosys parity</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Command</th><th>Equivalent</th></tr></thead><tbody>
+<tr><td><code>jil -f file.jil</code></td><td>Parse + apply each <code>insert_job</code> / <code>update_job</code> / <code>delete_job</code> block</td></tr>
+<tr><td><code>autorep -J &lt;name&gt;</code></td><td>Job + 20 recent runs</td></tr>
+<tr><td><code>autorep -A</code></td><td>All jobs summary table</td></tr>
+<tr><td><code>sendevent &lt;name&gt; STARTJOB</code></td><td><code>trigger</code></td></tr>
+<tr><td><code>sendevent &lt;name&gt; KILLJOB</code></td><td>Kill running run</td></tr>
+<tr><td><code>sendevent &lt;name&gt; ON_HOLD</code> / <code>OFF_HOLD</code></td><td><code>pause</code> / <code>resume</code></td></tr>
+<tr><td><code>sendevent &lt;name&gt; CHANGE_STATUS=SUCCESS</code></td><td>Force most-recent run's state</td></tr>
+<tr><td><code>sendevent &lt;name&gt; SEND_SIGNAL=TERM</code></td><td>Forward unix signal to running PID</td></tr>
+</tbody></table>
+</div>
+<h2 id="globals-1"><a class="header" href="#globals-1">Globals</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Command</th><th>What it does</th></tr></thead><tbody>
+<tr><td><code>global list</code></td><td><code>name=value</code> per line</td></tr>
+<tr><td><code>global set NAME VALUE</code></td><td>Upsert</td></tr>
+<tr><td><code>global delete NAME</code></td><td>Remove</td></tr>
+</tbody></table>
+</div>
+<h2 id="spec-format"><a class="header" href="#spec-format">Spec format</a></h2>
+<p>YAML or JSON. Same shape as <code>CreateJobReq</code>:</p>
+<pre><code class="language-yaml">name: my-job
+trigger:
+  kind: cron
+  expr: "*/5 * * * *"
+cmd: /opt/etl/run.sh
+timeout_secs: 300
+retry:
+  max_attempts: 3
+  backoff:
+    kind: exponential
+    base_secs: 30
+    max_secs: 600
+alerts:
+  events: [on_failure]
+  channels:
+    - kind: slack
+      webhook_url: "https://hooks.slack.com/services/T.../B.../..."
+</code></pre>
+<p>Apply:</p>
+<pre><code class="language-bash">rusty-sched cli apply -f my-job.yaml
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="jil-parser"><a class="header" href="#jil-parser">JIL parser</a></h1>
+<p>rusty-sched ships an Autosys-compatible JIL (Job Information Language)
+parser so you can bulk-import existing job definitions.</p>
+<pre><code class="language-bash">rusty-sched cli jil -f my_jobs.jil
+</code></pre>
+<p>The parser strips <code>/* ... */</code> comments, splits on <code>insert_job</code> /
+<code>update_job</code> / <code>delete_job</code> verbs, and translates each block into a
+<a href="./jobs.html">Job</a>. Warnings are emitted (but don't fail the apply) for:</p>
+<ul>
+<li>Unknown attributes</li>
+<li>Attributes that need a separate apply step (e.g. <code>exclude_calendar</code> name → CalendarId resolution)</li>
+<li>Box-only attributes on a non-box job</li>
+</ul>
+<h2 id="supported-attributes"><a class="header" href="#supported-attributes">Supported attributes</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Attribute</th><th>Maps to</th></tr></thead><tbody>
+<tr><td><code>job_type: c|box|fw</code></td><td><code>Job</code> / <code>Box</code> / file-watcher</td></tr>
+<tr><td><code>command</code></td><td><code>cmd</code></td></tr>
+<tr><td><code>machine</code></td><td><code>Target::Tag</code></td></tr>
+<tr><td><code>owner</code></td><td>spec-level metadata</td></tr>
+<tr><td><code>days_of_week</code> + <code>start_times</code></td><td>Cron expression</td></tr>
+<tr><td><code>condition</code></td><td>Stored raw → <code>Trigger::Condition</code></td></tr>
+<tr><td><code>alarm_if_fail: y|n</code></td><td><code>AlertConfig { events: [OnFailure] }</code></td></tr>
+<tr><td><code>n_retrys</code> / <code>n_retries</code></td><td><code>retry.max_attempts = n + 1</code></td></tr>
+<tr><td><code>term_run_time</code> (minutes)</td><td><code>timeout_secs = N * 60</code></td></tr>
+<tr><td><code>description</code> / <code>std_out_file</code> / <code>std_err_file</code></td><td>metadata</td></tr>
+<tr><td><code>box_name</code></td><td><code>box_id</code> (resolved at apply)</td></tr>
+<tr><td><code>exclude_calendar</code></td><td><code>exclude_calendar_id</code> (name resolved at apply)</td></tr>
+<tr><td><code>must_start_times</code> / <code>must_complete_times</code></td><td><code>Vec&lt;NaiveTime&gt;</code> (parses HH:MM or HH:MM:SS)</td></tr>
+<tr><td><code>fail_codes</code></td><td><code>exit_policy.fail_codes</code> (CSV of ints)</td></tr>
+<tr><td><code>max_exit_success</code></td><td><code>exit_policy.max_exit_success</code></td></tr>
+<tr><td><code>condition_code</code></td><td><code>exit_policy.condition_code</code></td></tr>
+<tr><td><code>box_success</code></td><td><code>box.box_success_expr</code></td></tr>
+<tr><td><code>box_failure</code></td><td><code>box.box_failure_expr</code></td></tr>
+<tr><td><code>box_terminator: y|n</code></td><td><code>box.box_terminator</code></td></tr>
+<tr><td><code>job_terminator: y|n</code></td><td><code>box.job_terminator</code></td></tr>
+<tr><td><code>auto_hold: y|n</code></td><td><code>box.auto_hold</code></td></tr>
+<tr><td><code>resources</code></td><td><code>Vec&lt;ResourceClaim&gt;</code> — see syntax below</td></tr>
+</tbody></table>
+</div>
+<h2 id="resources-syntax"><a class="header" href="#resources-syntax"><code>resources:</code> syntax</a></h2>
+<p>Comma-separated entries. Each entry is <code>name</code> (defaults to 1 unit) or
+<code>name(N)</code>:</p>
+<pre><code class="language-jil">resources: "db.connections(3), cpu, gpu(2)"
+</code></pre>
+<p>→ three claims: <code>db.connections × 3</code>, <code>cpu × 1</code>, <code>gpu × 2</code>.</p>
+<h2 id="sample"><a class="header" href="#sample">Sample</a></h2>
+<pre><code class="language-jil">/* ------------ Nightly ETL ------------ */
+
+insert_job: nightly_etl   job_type: c
+command: /opt/etl/run.sh
+machine: etl-prod-01
+owner: etl-team@example.com
+days_of_week: mo,tu,we,th,fr
+start_times: "02:00"
+exclude_calendar: us_holidays
+must_start_times: "02:05"
+must_complete_times: "04:00,06:00"
+fail_codes: "100,101,102"
+max_exit_success: 2
+condition_code: 7
+alarm_if_fail: y
+n_retrys: 3
+term_run_time: 60
+resources: "db.connections(1), warehouse_slot"
+condition: success(prep, 01.30) and notrunning(other) and value(IS_RUN_DAY)
+
+/* ------------ Box around it ------------ */
+
+insert_job: nightly_etl_box   job_type: box
+description: "Container"
+box_success: success(prep) and success(nightly_etl)
+box_failure: failure(prep) or failure(nightly_etl)
+box_terminator: y
+auto_hold: y
+
+update_job: nightly_etl
+alarm_if_fail: n
+
+delete_job: old_job
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="sendevent--autorep"><a class="header" href="#sendevent--autorep"><code>sendevent</code> / <code>autorep</code></a></h1>
+<p>The two main Autosys CLI verbs are mapped to native rusty-sched calls.</p>
+<h2 id="sendevent"><a class="header" href="#sendevent"><code>sendevent</code></a></h2>
+<p><code>sendevent &lt;JOB&gt; &lt;EVENT&gt;</code>. Resolves the job by name (or ULID) and dispatches.</p>
+<div class="table-wrapper"><table><thead><tr><th>Event</th><th>Aliases</th><th>Action</th></tr></thead><tbody>
+<tr><td><code>STARTJOB</code></td><td><code>START</code>, <code>FORCE_STARTJOB</code></td><td>Trigger a manual run</td></tr>
+<tr><td><code>KILLJOB</code></td><td><code>KILL</code></td><td><code>SIGKILL</code> the most recent running run</td></tr>
+<tr><td><code>ON_HOLD</code></td><td><code>HOLD</code>, <code>OFF_ICE</code></td><td>Pause</td></tr>
+<tr><td><code>OFF_HOLD</code></td><td><code>UNHOLD</code>, <code>ON_ICE</code></td><td>Resume</td></tr>
+<tr><td><code>CHANGE_STATUS=&lt;state&gt;</code></td><td>—</td><td>Force most recent run to <code>success/failed/killed/lost/skipped</code></td></tr>
+<tr><td><code>SEND_SIGNAL=&lt;sig&gt;</code></td><td>—</td><td>Forward unix signal (<code>TERM</code>, <code>HUP</code>, <code>USR1</code>, <code>15</code>, …)</td></tr>
+<tr><td><code>SET_GLOBAL</code></td><td>—</td><td>Returns hint: use <code>cli global set NAME VALUE</code> instead</td></tr>
+</tbody></table>
+</div>
+<pre><code class="language-bash">rusty-sched cli sendevent prod_etl STARTJOB
+rusty-sched cli sendevent prod_etl SEND_SIGNAL=TERM
+rusty-sched cli sendevent prod_etl CHANGE_STATUS=SUCCESS
+rusty-sched cli sendevent prod_etl ON_HOLD
+</code></pre>
+<h2 id="autorep"><a class="header" href="#autorep"><code>autorep</code></a></h2>
+<p><code>autorep -J &lt;name&gt;</code> or <code>autorep -A</code> for the all-jobs summary.</p>
+<pre><code class="language-bash">rusty-sched cli autorep -J nightly_etl
+# Job: nightly_etl
+#   id:           01H8...
+#   state:        active
+#   cmd:          /opt/etl/run.sh
+#   next_fire_at: 2026-05-24T02:00:00Z
+# Recent runs:
+#   01H...  Success  exit=0  started=2026-05-23T02:00:01Z
+#   01H...  Failed   exit=7  started=2026-05-22T02:00:00Z
+
+rusty-sched cli autorep -A
+# JOB_NAME             STATE      LAST_RUN   NEXT_FIRE
+# nightly_etl          active     Success    2026-05-24T02:00:00Z
+# downstream           ON_HOLD    -          -
+</code></pre>
+<h2 id="rest-equivalents"><a class="header" href="#rest-equivalents">REST equivalents</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Event</th><th>REST</th></tr></thead><tbody>
+<tr><td><code>STARTJOB</code></td><td><code>POST /api/v1/jobs/:id/trigger</code></td></tr>
+<tr><td><code>KILLJOB</code></td><td><code>DELETE /api/v1/runs/:run_id</code></td></tr>
+<tr><td><code>ON_HOLD</code> / <code>OFF_HOLD</code></td><td><code>POST /api/v1/jobs/:id/pause</code> / <code>/resume</code></td></tr>
+<tr><td><code>CHANGE_STATUS=X</code></td><td><code>POST /api/v1/runs/:run_id/state {state: "X"}</code></td></tr>
+<tr><td><code>SEND_SIGNAL=X</code></td><td><code>POST /api/v1/runs/:run_id/signal {signal: "X"}</code></td></tr>
+<tr><td><code>SET_GLOBAL</code></td><td><code>POST /api/v1/globals {name, value}</code></td></tr>
+</tbody></table>
+</div>
+<p>Every successful write records an audit entry (<code>run.kill</code>, <code>run.signal</code>,
+<code>run.change_status</code>, <code>global.set</code>, etc.). View via <code>GET /api/v1/audit</code> or
+the <strong>Audit</strong> tab.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="auth--rbac--api-keys"><a class="header" href="#auth--rbac--api-keys">Auth + RBAC + API keys</a></h1>
+<p>rusty-sched ships with bcrypt-hashed passwords, cookie sessions, API keys,
+three RBAC roles, and an audit log on every mutation.</p>
+<h2 id="first-run-bootstrap"><a class="header" href="#first-run-bootstrap">First-run bootstrap</a></h2>
+<p>On startup, if zero users exist, the binary auto-creates <code>admin</code> with a
+password sourced from:</p>
+<ol>
+<li><code>RSCHED_ADMIN_PASSWORD</code> env var (preferred).</li>
+<li>A randomly generated string that is logged at WARN level on stdout.</li>
+</ol>
+<pre><code class="language-bash">RSCHED_ADMIN_PASSWORD=change-me rusty-sched server
+</code></pre>
+<h2 id="roles"><a class="header" href="#roles">Roles</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Role</th><th>Read</th><th>Write jobs / runs / globals / resources</th><th>Admin (users + audit + manage any key)</th></tr></thead><tbody>
+<tr><td><code>viewer</code></td><td>✅</td><td>❌</td><td>❌</td></tr>
+<tr><td><code>operator</code></td><td>✅</td><td>✅</td><td>❌</td></tr>
+<tr><td><code>admin</code></td><td>✅</td><td>✅</td><td>✅</td></tr>
+</tbody></table>
+</div>
+<p>Enforced by axum extractors:</p>
+<ul>
+<li><code>AuthUser</code> — must be authenticated</li>
+<li><code>RequireWrite</code> — must be operator or admin</li>
+<li><code>RequireAdmin</code> — must be admin</li>
+</ul>
+<p>Anonymous access is allowed for read endpoints. Write endpoints return
+<strong>401</strong> when no credentials are present, <strong>403</strong> when credentials lack
+the role.</p>
+<h2 id="sessions-ui"><a class="header" href="#sessions-ui">Sessions (UI)</a></h2>
+<p><code>POST /api/v1/auth/login</code> sets a <code>rsched_session</code> cookie:</p>
+<pre><code>rsched_session=&lt;32-byte-base64url&gt;; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200
+</code></pre>
+<p>TTL: 12 hours. Pruned periodically via <code>SessionRepo::prune_expired</code>.</p>
+<h2 id="api-keys-cli--integrations"><a class="header" href="#api-keys-cli--integrations">API keys (CLI / integrations)</a></h2>
+<p>Generated by the user in the <strong>API keys</strong> UI tab. The plaintext token is
+shown <strong>once</strong> on creation — you can't recover it later. Use it as a
+Bearer token:</p>
+<pre><code class="language-bash">export RSCHED_TOKEN=&lt;paste-token&gt;
+rusty-sched cli list
+curl -H "Authorization: Bearer $RSCHED_TOKEN" http://localhost:8080/api/v1/jobs
+</code></pre>
+<p>Tokens are bcrypt-hashed at rest. On every request the auth middleware
+loops over <strong>active</strong> keys for the current user and <code>verify</code>s against
+each hash. To keep this fast in deployments with many keys, the
+<code>all_active</code> query is filtered by expiry + disabled flags.</p>
+<h2 id="audit-log"><a class="header" href="#audit-log">Audit log</a></h2>
+<p>Every successful mutation records an <code>AuditEntry</code>:</p>
+<div class="table-wrapper"><table><thead><tr><th>Action</th><th>Trigger</th></tr></thead><tbody>
+<tr><td><code>auth.login</code></td><td>Successful login</td></tr>
+<tr><td><code>apikey.create</code> / <code>apikey.delete</code></td><td>API key lifecycle</td></tr>
+<tr><td><code>user.create</code></td><td>Admin created a user</td></tr>
+<tr><td><code>job.create</code> / <code>job.update</code> / <code>job.delete</code></td><td>Job mutations</td></tr>
+<tr><td><code>job.pause</code> / <code>job.resume</code> / <code>job.trigger</code></td><td>Job state changes</td></tr>
+<tr><td><code>run.kill</code> / <code>run.signal</code> / <code>run.change_status</code></td><td>Run interventions</td></tr>
+<tr><td><code>global.set</code> / <code>global.delete</code></td><td>Globals</td></tr>
+<tr><td><code>resource.create</code> / <code>resource.delete</code></td><td>Virtual resources</td></tr>
+</tbody></table>
+</div>
+<p>Admins can view the last 200 entries via <code>GET /api/v1/audit</code> or the
+<strong>Audit</strong> UI tab.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="deployment"><a class="header" href="#deployment">Deployment</a></h1>
+<h2 id="single-binary-sqlite-recommended-for-most-teams"><a class="header" href="#single-binary-sqlite-recommended-for-most-teams">Single binary, SQLite (recommended for most teams)</a></h2>
+<p>The default. No external dependencies.</p>
+<pre><code class="language-bash">RSCHED_ADMIN_PASSWORD=change-me rusty-sched server \
+  --bind 0.0.0.0:8080
+</code></pre>
+<p>Data lives at:</p>
+<div class="table-wrapper"><table><thead><tr><th>OS</th><th>Path</th></tr></thead><tbody>
+<tr><td>Linux</td><td><code>~/.local/share/io.rustysched.rusty-sched/rusty.db</code></td></tr>
+<tr><td>macOS</td><td><code>~/Library/Application Support/io.rustysched.rusty-sched/rusty.db</code></td></tr>
+<tr><td>Windows</td><td><code>%LOCALAPPDATA%\io\rustysched\rusty-sched\data\rusty.db</code></td></tr>
+</tbody></table>
+</div>
+<p>Override with <code>--db /path/to/rusty.db</code> or <code>RSCHED_DB</code>.</p>
+<h2 id="postgres-backend"><a class="header" href="#postgres-backend">Postgres backend</a></h2>
+<p>For multi-replica or external-DB deployments:</p>
+<pre><code class="language-bash">rusty-sched server --db-url postgres://user:pass@db.internal:5432/rusty
+</code></pre>
+<p>Migrations run automatically on startup. Schema is identical to the
+SQLite version (via <code>sqlx::Any</code>).</p>
+<h2 id="service-install"><a class="header" href="#service-install">Service install</a></h2>
+<pre><code class="language-bash">sudo rusty-sched service install
+sudo systemctl enable --now rusty-sched-server  # linux
+</code></pre>
+<p>Generates:</p>
+<ul>
+<li>Linux: <code>/etc/systemd/system/rusty-sched-server.service</code></li>
+<li>macOS: <code>/Library/LaunchDaemons/io.rustysched.server.plist</code></li>
+<li>Windows: registered via the Service Control Manager</li>
+</ul>
+<h2 id="environment-variables"><a class="header" href="#environment-variables">Environment variables</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Var</th><th>Purpose</th></tr></thead><tbody>
+<tr><td><code>RSCHED_BIND</code></td><td>HTTP bind address (default <code>0.0.0.0:8080</code>)</td></tr>
+<tr><td><code>RSCHED_DB</code></td><td>SQLite file path</td></tr>
+<tr><td><code>RSCHED_DB_URL</code></td><td>Full DB URL (sqlite:// or postgres://) — overrides <code>--db</code></td></tr>
+<tr><td><code>RSCHED_ADMIN_PASSWORD</code></td><td>First-run admin password</td></tr>
+<tr><td><code>RSCHED_SMTP_HOST</code> / <code>_USER</code> / <code>_PASS</code></td><td>SMTP for email alerts</td></tr>
+<tr><td><code>RSCHED_JSON</code></td><td>Enable JSON-format <code>tracing</code> output</td></tr>
+<tr><td><code>RUST_LOG</code></td><td>Standard <code>tracing-subscriber</code> filter</td></tr>
+</tbody></table>
+</div>
+<h2 id="tls"><a class="header" href="#tls">TLS</a></h2>
+<p>Run behind nginx / Caddy / Traefik. rusty-sched terminates HTTP only;
+mutual-TLS gRPC is reserved for the M4-full remote agent.</p>
+<pre><code class="language-nginx">server {
+  listen 443 ssl http2;
+  server_name scheduler.example.com;
+
+  ssl_certificate     /etc/ssl/scheduler.crt;
+  ssl_certificate_key /etc/ssl/scheduler.key;
+
+  location / {
+    proxy_pass         http://127.0.0.1:8080;
+    proxy_set_header   Host $host;
+    proxy_set_header   Upgrade $http_upgrade;
+    proxy_set_header   Connection "upgrade";
+  }
+}
+</code></pre>
+<p>(The <code>Upgrade</code> headers are required for the WebSocket log-tail endpoint.)</p>
+<h2 id="backup"><a class="header" href="#backup">Backup</a></h2>
+<p>SQLite: stop the server, <code>cp</code> the DB file (or use <code>VACUUM INTO 'backup.db'</code>
+for an online snapshot).</p>
+<p>Postgres: standard <code>pg_dump</code>.</p>
+<h2 id="graceful-shutdown"><a class="header" href="#graceful-shutdown">Graceful shutdown</a></h2>
+<p><code>SIGINT</code> / <code>SIGTERM</code> triggers axum graceful shutdown. In-flight HTTP
+requests are allowed to complete. Running child processes are NOT killed
+— rusty-sched detaches and they continue. Their final state is captured
+when the next scheduler boots and the agent reconnects (M4-full) or, on
+the local executor, lost as <code>RunState::Lost</code>.</p>
+<h2 id="single-node-vs-ha"><a class="header" href="#single-node-vs-ha">Single-node vs HA</a></h2>
+<p>This version is <strong>single-node</strong>. Multi-node Raft HA (<code>openraft</code>) is
+reserved for v0.8 (M10). For high availability today: run with Postgres
+backend behind a load balancer using DNS failover; only one rusty-sched
+process should be running at a time.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="troubleshooting"><a class="header" href="#troubleshooting">Troubleshooting</a></h1>
+<h2 id="401-unauthorized-on-write-endpoints"><a class="header" href="#401-unauthorized-on-write-endpoints">"401 unauthorized" on write endpoints</a></h2>
+<p>You're trying to POST/PUT/DELETE without credentials. Two options:</p>
+<ol>
+<li>Browser: log in via the UI (<code>/</code>) — cookie is set automatically.</li>
+<li>CLI / curl: create an API key in the <strong>API keys</strong> tab, then export
+<code>RSCHED_TOKEN=&lt;token&gt;</code> (CLI) or pass <code>-H "Authorization: Bearer &lt;token&gt;"</code> (curl).</li>
+</ol>
+<h2 id="first-run-admin-password-lost"><a class="header" href="#first-run-admin-password-lost">"First-run admin password lost"</a></h2>
+<p>The bootstrap-generated password is logged at WARN level on first
+startup. If you missed it:</p>
+<ol>
+<li>Stop the server.</li>
+<li>Set <code>RSCHED_ADMIN_PASSWORD=new-password</code> and restart — <strong>does not</strong>
+reset existing users.</li>
+<li>To reset admin: connect to the DB and run
+<code>DELETE FROM users WHERE username = 'admin';</code> then restart. The
+bootstrap will re-create with your env var.</li>
+</ol>
+<h2 id="jobs-not-firing"><a class="header" href="#jobs-not-firing">Jobs not firing</a></h2>
+<p>Walk the tick path:</p>
+<ol>
+<li><code>paused</code> is false?</li>
+<li><code>next_fire_at</code> is set + in the past? Check <code>GET /api/v1/jobs/:id</code>.</li>
+<li>Calendar (include + exclude) allows now? Inspect with
+<code>GET /api/v1/calendars/:id</code>.</li>
+<li>Resource claims acquirable? Check <code>GET /api/v1/resources</code> — <code>available</code>
+should be ≥ each claimed <code>units</code>.</li>
+<li>Condition trigger expression resolves to <code>Some(true)</code>? Test by setting
+the globals + checking upstream run state.</li>
+</ol>
+<p>Tail server logs with <code>RUST_LOG=info,rsched=debug</code>.</p>
+<h2 id="dispatch-queue-full"><a class="header" href="#dispatch-queue-full">"dispatch queue full"</a></h2>
+<p>The mpsc between tick loop and dispatcher (capacity 10k) is full. Usually
+means the local executor isn't draining fast enough — too many concurrent
+runs vs. CPU available. Solutions:</p>
+<ul>
+<li>Add virtual-resource claims to cap concurrency.</li>
+<li>Reduce the cron fan-out.</li>
+<li>Wait for the M4-full mTLS agent to distribute load across multiple
+hosts.</li>
+</ul>
+<h2 id="logs-truncated-at-100-mb"><a class="header" href="#logs-truncated-at-100-mb">Logs truncated at 100 MB</a></h2>
+<p>Hard cap per run. Set lower-noise commands or write logs to a file and
+inspect via <code>std_out_file</code> reference.</p>
+<h2 id="postgres-migrations-fail"><a class="header" href="#postgres-migrations-fail">Postgres migrations fail</a></h2>
+<p>Symptom: <code>relation "jobs" does not exist</code> after switching <code>--db-url</code>. The
+sqlx migrator is per-database — switching from SQLite to Postgres needs
+a fresh Postgres database; rusty-sched doesn't auto-migrate data
+between engines.</p>
+<h2 id="tests-fail-on-macos-but-pass-on-linux"><a class="header" href="#tests-fail-on-macos-but-pass-on-linux">Tests fail on macOS but pass on Linux</a></h2>
+<p><code>ru_maxrss</code> is bytes on macOS and KiB on Linux — <code>capture_rusage_children</code>
+handles both. If you've extended <code>getrusage</code> consumers, check the
+platform branch.</p>
+<h2 id="websocket-log-tail-closes-immediately"><a class="header" href="#websocket-log-tail-closes-immediately">WebSocket log tail closes immediately</a></h2>
+<p>Behind a reverse proxy? Make sure the <code>Upgrade</code> + <code>Connection</code> headers
+are forwarded — see the nginx example in <a href="./deployment.html">Deployment</a>.</p>
+<h2 id="the-jil-parser-warning-says-is-not-yet-mapped"><a class="header" href="#the-jil-parser-warning-says-is-not-yet-mapped">"the JIL parser warning says 'is not yet mapped'"</a></h2>
+<p>The attribute is recognized as valid JIL but not yet translated to a
+<code>Job</code> field. Common ones: <code>date_conditions</code>, <code>timezone</code> (per-job),
+<code>run_calendar</code>, <code>max_run_alarm</code>, <code>watch_file*</code>, <code>profile</code>, <code>application</code>,
+<code>group</code>, <code>permission</code>. They're persisted in <code>JobSpec.warnings</code> for audit.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="architecture"><a class="header" href="#architecture">Architecture</a></h1>
+<pre><code>┌───────────────────────────────────────────────────────────────────────┐
+│                         rusty-sched (one binary)                       │
+│                                                                       │
+│  ┌──────────┐    ┌───────────────┐    ┌───────────────────────────┐   │
+│  │  axum    │◄──►│  rsched-api   │◄──►│   rsched-store (sqlx)     │   │
+│  │  HTTP    │    │ + auth + WS   │    │  SQLite | Postgres        │   │
+│  └──────────┘    └───────────────┘    └───────────────────────────┘   │
+│        ▲                ▲                    ▲       ▲                 │
+│        │                │                    │       │                 │
+│   ┌────┴────┐       ┌───┴────────┐      ┌────┴───┐ ┌─┴────────────┐    │
+│   │ rsched- │       │  rsched-   │      │ rsched-│ │  rsched-     │    │
+│   │   ui    │       │ scheduler  │◄────►│ alert  │ │ conditions   │    │
+│   │ React   │       │ tick + DAG │      │        │ │ (DSL eval)   │    │
+│   │ embed   │       └─────┬──────┘      └────────┘ └──────────────┘    │
+│   └─────────┘             │                                            │
+│                           ▼                                            │
+│                ┌────────────────────┐         ┌────────────────────┐   │
+│                │   rsched-agent     │◄───────►│  rsched-jil        │   │
+│                │  LocalExecutor     │         │  Autosys text DSL  │   │
+│                │  (tokio::process)  │         └────────────────────┘   │
+│                └────────────────────┘                                  │
+│                                                                       │
+└───────────────────────────────────────────────────────────────────────┘
+</code></pre>
+<h2 id="crates"><a class="header" href="#crates">Crates</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Crate</th><th>Responsibility</th></tr></thead><tbody>
+<tr><td><code>rsched-core</code></td><td>Pure domain types — <code>Job</code>, <code>Run</code>, <code>Box</code>, <code>Calendar</code>, <code>Trigger</code>, <code>Resource</code>, <code>User</code>, <code>Role</code>. No IO.</td></tr>
+<tr><td><code>rsched-store</code></td><td>sqlx repos for every entity; embedded migrations (sqlite + postgres).</td></tr>
+<tr><td><code>rsched-conditions</code></td><td>Condition DSL parser + evaluator (<code>UpstreamState</code> trait).</td></tr>
+<tr><td><code>rsched-scheduler</code></td><td>Tick loop, DAG resolution, cron, dispatch queue, box state evaluator, calendar filter.</td></tr>
+<tr><td><code>rsched-agent</code></td><td><code>Executor</code> trait + <code>LocalExecutor</code> (tokio::process w/ stdout/stderr streaming + rusage).</td></tr>
+<tr><td><code>rsched-alert</code></td><td>Slack / webhook / SMTP channels + SLA + must_times evaluators.</td></tr>
+<tr><td><code>rsched-api</code></td><td>axum router + middleware (auth, RBAC) + WebSocket log tail.</td></tr>
+<tr><td><code>rsched-ui</code></td><td>React + Tailwind SPA embedded via <code>rust-embed</code>.</td></tr>
+<tr><td><code>rsched-cli</code></td><td>reqwest-based REST client + Autosys-style <code>sendevent</code> / <code>autorep</code> subcommands.</td></tr>
+<tr><td><code>rsched-jil</code></td><td>Autosys JIL parser + <code>JobSpec</code> → <code>Job</code> translator.</td></tr>
+<tr><td><code>rsched-bin</code></td><td>Single entrypoint binary. Wires every crate together.</td></tr>
+</tbody></table>
+</div>
+<h2 id="data-model"><a class="header" href="#data-model">Data model</a></h2>
+<pre><code>users ─┬─&lt; sessions
+       ├─&lt; api_keys
+       └─&lt; audit_log
+calendars ─&lt; jobs ─┬─&lt; runs ─┬─&lt; run_logs
+                   │         └─&lt; resource_holds &gt;─ resources
+                   └─&lt; dependencies (self-edge)
+boxes ─&lt; jobs
+globals
+</code></pre>
+<p><code>jobs</code> carries denormalized JSON blobs for <code>trigger</code>, <code>retry</code>, <code>alerts</code>,
+<code>target</code>, <code>exit_policy</code>, <code>resource_claims</code>, etc. — the scheduler reads
+them as a single row + serde-deserializes inline.</p>
+<h2 id="tick-loop-1-hz"><a class="header" href="#tick-loop-1-hz">Tick loop (1 Hz)</a></h2>
+<pre><code>for now in tick():
+    cals = store.calendars().list()       # ~1 query
+    for job in store.jobs().due(now):     # uses partial index idx_jobs_due
+        if !calendar_allows(&amp;job, now, &amp;cals):
+            advance(job, next_cron); continue
+        if !try_acquire(run.id, job.claims):
+            continue
+        store.runs().insert(&amp;run)         # state=Queued
+        dispatcher.try_send(intent)       # bounded mpsc capacity 10k
+        advance(job, next_cron)
+    # condition-trigger jobs evaluated separately
+    for job in store.jobs().list():
+        if Condition trigger:
+            ctx = StoreUpstreamState::new(store)   # snapshot
+            if evaluate(&amp;expr, &amp;ctx) == Some(true):
+                dispatch(job)
+</code></pre>
+<h2 id="dispatch-consumer-binmainrs"><a class="header" href="#dispatch-consumer-binmainrs">Dispatch consumer (bin/main.rs)</a></h2>
+<pre><code>while intent in dispatch_rx:
+    handle = executor.dispatch(intent)
+    registry.insert(run_id, kill_tx, signal_tx)
+    for chunk in handle.logs: store.run_logs().append(...)
+    outcome = handle.outcome.await
+    run.state = exit_policy.evaluate(outcome.exit_code)
+    run.peak_rss_bytes = outcome.peak_rss_bytes
+    store.runs().update(&amp;run)
+    store.resources().release(run_id)
+    if should_retry(...): schedule_retry(...)
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="compatibility-with-autosys--cronicle"><a class="header" href="#compatibility-with-autosys--cronicle">Compatibility with Autosys + Cronicle</a></h1>
+<h2 id="autosys-coverage"><a class="header" href="#autosys-coverage">Autosys coverage</a></h2>
+<h3 id="jil-attributes"><a class="header" href="#jil-attributes">JIL attributes</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Attribute</th><th>Status</th><th>Notes</th></tr></thead><tbody>
+<tr><td><code>job_type</code> (c/box/fw)</td><td>✅</td><td></td></tr>
+<tr><td><code>command</code> / <code>machine</code> / <code>owner</code></td><td>✅</td><td>machine → <code>Target::Tag</code></td></tr>
+<tr><td><code>days_of_week</code> / <code>start_times</code></td><td>✅</td><td>composed into cron</td></tr>
+<tr><td><code>condition</code></td><td>✅</td><td>DSL evaluator wired</td></tr>
+<tr><td><code>alarm_if_fail</code> / <code>n_retrys</code> / <code>term_run_time</code> / <code>description</code> / <code>std_out_file</code> / <code>std_err_file</code> / <code>box_name</code></td><td>✅</td><td></td></tr>
+<tr><td><code>exclude_calendar</code></td><td>✅</td><td>name resolved at apply step</td></tr>
+<tr><td><code>must_start_times</code> / <code>must_complete_times</code></td><td>✅ data + helper; ⏳ runtime alert dispatch</td><td></td></tr>
+<tr><td><code>fail_codes</code> / <code>max_exit_success</code> / <code>condition_code</code></td><td>✅</td><td>mapped to <code>ExitCodePolicy</code></td></tr>
+<tr><td><code>box_success</code> / <code>box_failure</code></td><td>✅ data + evaluator; ⏳ runtime kill-on-failure</td><td></td></tr>
+<tr><td><code>box_terminator</code> / <code>job_terminator</code> / <code>auto_hold</code></td><td>✅ data; ⏳ runtime</td><td></td></tr>
+<tr><td><code>resources</code></td><td>✅</td><td>atomic acquire/release</td></tr>
+<tr><td><code>date_conditions</code> / <code>timezone</code> / <code>run_calendar</code> / <code>max_run_alarm</code> / <code>watch_file*</code> / <code>profile</code> / <code>application</code> / <code>group</code> / <code>permission</code></td><td>⏳ recognized + warning, not yet mapped</td><td></td></tr>
+</tbody></table>
+</div>
+<h3 id="condition-dsl-1"><a class="header" href="#condition-dsl-1">Condition DSL</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Function</th><th>Status</th></tr></thead><tbody>
+<tr><td><code>success/failure/done(job)</code></td><td>✅</td></tr>
+<tr><td><code>running/notrunning(job)</code></td><td>✅</td></tr>
+<tr><td><code>exitcode(j) &lt;op&gt; N</code></td><td>✅</td></tr>
+<tr><td><code>success/failure/done(j, HH.MM)</code> look-back</td><td>✅</td></tr>
+<tr><td><code>numrun/numsuc/numfail(j [, HH.MM]) &lt;op&gt; N</code></td><td>✅</td></tr>
+<tr><td><code>value(name)</code></td><td>✅ resolves to globals</td></tr>
+<tr><td><code>and / or / not</code> + parens</td><td>✅</td></tr>
+</tbody></table>
+</div>
+<h3 id="sendevent-verbs"><a class="header" href="#sendevent-verbs">sendevent verbs</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Verb</th><th>Status</th></tr></thead><tbody>
+<tr><td><code>STARTJOB</code> / <code>FORCE_STARTJOB</code></td><td>✅</td></tr>
+<tr><td><code>KILLJOB</code></td><td>✅</td></tr>
+<tr><td><code>ON_HOLD</code> / <code>OFF_HOLD</code></td><td>✅</td></tr>
+<tr><td><code>CHANGE_STATUS=X</code></td><td>✅</td></tr>
+<tr><td><code>SEND_SIGNAL=X</code></td><td>✅ (unix only)</td></tr>
+<tr><td><code>SET_GLOBAL</code></td><td>✅ via <code>cli global set</code></td></tr>
+<tr><td><code>JOB_ON_ICE</code> / <code>JOB_OFF_ICE</code></td><td>✅ aliased to ON_HOLD/OFF_HOLD</td></tr>
+<tr><td><code>CHANGE_PRIORITY</code></td><td>⏳ not yet</td></tr>
+<tr><td><code>COMMENT</code> / <code>RUN_REPORT</code></td><td>⏳ not yet</td></tr>
+</tbody></table>
+</div>
+<h3 id="autorep-1"><a class="header" href="#autorep-1">autorep</a></h3>
+<ul>
+<li><code>autorep -J &lt;name&gt;</code> ✅</li>
+<li><code>autorep -A</code> ✅</li>
+<li><code>autorep -M</code> (machines/agents) ⏳ pending M4-full</li>
+<li><code>autorep -B</code> (boxes report) ⏳</li>
+</ul>
+<h2 id="cronicle-coverage"><a class="header" href="#cronicle-coverage">Cronicle coverage</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Feature</th><th>Status</th></tr></thead><tbody>
+<tr><td>Web dashboard</td><td>✅</td></tr>
+<tr><td>Real-time live log tail</td><td>✅ via WebSocket</td></tr>
+<tr><td>Dark / light theme</td><td>✅</td></tr>
+<tr><td>Multi-page UI (Jobs / Resources / Globals / API keys / Users / Audit)</td><td>✅</td></tr>
+<tr><td>Job filter / search</td><td>✅</td></tr>
+<tr><td>Job stats (success rate + p50/p99)</td><td>✅ from M21</td></tr>
+<tr><td>API keys</td><td>✅</td></tr>
+<tr><td>User auth + RBAC</td><td>✅</td></tr>
+<tr><td>Plugins (JSON-over-stdio)</td><td>⏳ planned v0.7.2</td></tr>
+<tr><td>Multi-server failover + auto-discovery</td><td>⏳ planned v0.8 (Raft)</td></tr>
+<tr><td>Performance graphs (CPU/mem time series)</td><td>⏳ end-of-run snapshot in v0.7.1; chart coming</td></tr>
+<tr><td>Email + Slack + Webhook notifications</td><td>✅</td></tr>
+</tbody></table>
+</div>
+<h2 id="what-rusty-sched-offers-beyond-either"><a class="header" href="#what-rusty-sched-offers-beyond-either">What rusty-sched offers beyond either</a></h2>
+<ul>
+<li><strong>Single Rust binary</strong> — no Java runtime, no Node.js install, no
+Python venv.</li>
+<li><strong>Full Postgres backend</strong> via sqlx::Any — drop-in for HA / shared state.</li>
+<li><strong>JIL → REST translation</strong> — keep existing Autosys job definitions,
+manage them via a modern API.</li>
+<li><strong>RBAC + API keys built-in</strong> — Cronicle's API key UX, AutoSys's
+permission model, neither requires a plugin.</li>
+<li><strong>Audit log on every mutation</strong>, queryable via REST + UI.</li>
+<li><strong>MIT license, OSS.</strong></li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="roadmap"><a class="header" href="#roadmap">Roadmap</a></h1>
+<h2 id="shipped"><a class="header" href="#shipped">Shipped</a></h2>
+<ul>
+<li><strong>v0.1</strong> — Single binary core, REST, React UI, CLI, local executor,
+alerts (Slack/webhook/SMTP), cross-platform installers + release CI.</li>
+<li><strong>v0.2</strong> — Postgres backend, JIL parser, retry engine, conditions DSL,
+inline editor, log persistence, job stats sparkline, live KILLJOB.</li>
+<li><strong>v0.3</strong> — Autosys parity core (boxes, exit policy, look-back
+conditions, WS log tail), calendar tick filter, box state evaluator +
+must_times helpers.</li>
+<li><strong>v0.4</strong> — bcrypt users + sessions + API keys + RBAC + audit log + UI
+login; mutation routes locked down.</li>
+<li><strong>v0.5</strong> — Virtual resources with atomic acquire/release; REST + UI +
+JIL <code>resources:</code> syntax.</li>
+<li><strong>v0.6</strong> — Globals + <code>value(name)</code> eval; <code>autorep</code>; sendevent
+CHANGE_STATUS + SEND_SIGNAL.</li>
+<li><strong>v0.7-alpha</strong> — UI tabs (Resources / Globals / API keys / Users /
+Audit), dark mode toggle, job filter; per-run rusage (peak RSS + CPU).</li>
+</ul>
+<h2 id="next-slices"><a class="header" href="#next-slices">Next slices</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Version</th><th>Theme</th><th>Highlights</th></tr></thead><tbody>
+<tr><td>v0.3.3</td><td>File + webhook triggers</td><td><code>notify</code> watcher; HMAC webhook receiver</td></tr>
+<tr><td>v0.4.2</td><td>Auth polish</td><td>CSRF tokens; password change; user disable/delete</td></tr>
+<tr><td>v0.5.2</td><td>Resource UX</td><td>Capacity charts, resource ownership in JIL apply</td></tr>
+<tr><td>v0.6.3</td><td>Sendevent extras</td><td><code>CHANGE_PRIORITY</code>, <code>RUN_REPORT</code></td></tr>
+<tr><td>v0.7.x</td><td>UI polish</td><td>Visual DAG editor; perf-time-series chart; plugin host</td></tr>
+<tr><td>v0.8</td><td>HA + packaging</td><td>Raft via <code>openraft</code>; signed <code>.pkg</code> / WiX MSI / brew / winget</td></tr>
+<tr><td>M4-full</td><td>Remote agents</td><td>mTLS gRPC; machine load + <code>factor</code></td></tr>
+<tr><td>v1.0</td><td>Hardening</td><td>Chaos suite (toxiproxy/tc netem); criterion benches (10k jobs / 100 runs/sec); nightly acceptance</td></tr>
+</tbody></table>
+</div>
+<h2 id="how-to-contribute"><a class="header" href="#how-to-contribute">How to contribute</a></h2>
+<p>PRs welcome. See <a href="https://github.com/jdp5949/rusty-sched/blob/main/CONTRIBUTING.md"><code>CONTRIBUTING.md</code></a>
+in the repo for branch conventions + CI gates. Every PR must:</p>
+<ul>
+<li>Land green on the Linux + macOS + Windows test matrix</li>
+<li>Pass <code>cargo clippy --workspace --all-targets -- -D warnings</code></li>
+<li>Pass <code>cargo fmt --all --check</code></li>
+<li>Pass <code>cargo deny check</code></li>
+</ul>
+<h2 id="versioning"><a class="header" href="#versioning">Versioning</a></h2>
+<p><a href="https://semver.org/">SemVer</a>. Breaking changes bump major. Tag
+<code>vX.Y.Z</code> on <code>main</code>; GitHub Actions builds artifacts + a release.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+        <script>
+        window.addEventListener('load', function() {
+            window.setTimeout(window.print, 100);
+        });
+        </script>
+
+    </div>
+    </body>
+</html>

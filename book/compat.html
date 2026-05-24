@@ -1,0 +1,310 @@
+<!DOCTYPE HTML>
+<html lang="en" class="rust" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Compatibility w/ Autosys + Cronicle - rusty-sched</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="Reliable job scheduler in Rust — OSS Autosys with a Cronicle-grade UI.">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+        <link rel="stylesheet" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "ayu" : "rust";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('rust')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="introduction.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Getting Started</li><li class="chapter-item expanded "><a href="install.html">Install</a></li><li class="chapter-item expanded "><a href="quickstart.html">Quickstart</a></li><li class="chapter-item expanded affix "><li class="part-title">Concepts</li><li class="chapter-item expanded "><a href="jobs.html">Jobs</a></li><li class="chapter-item expanded "><a href="triggers.html">Triggers</a></li><li class="chapter-item expanded "><a href="boxes.html">Boxes</a></li><li class="chapter-item expanded "><a href="calendars.html">Calendars</a></li><li class="chapter-item expanded "><a href="resources.html">Virtual resources</a></li><li class="chapter-item expanded "><a href="globals.html">Global variables</a></li><li class="chapter-item expanded "><a href="conditions.html">Condition DSL</a></li><li class="chapter-item expanded "><a href="alerts.html">Alerts + SLA</a></li><li class="chapter-item expanded affix "><li class="part-title">Operating</li><li class="chapter-item expanded "><a href="api.html">REST API</a></li><li class="chapter-item expanded "><a href="cli.html">CLI reference</a></li><li class="chapter-item expanded "><a href="jil.html">JIL parser</a></li><li class="chapter-item expanded "><a href="sendevent.html">sendevent / autorep</a></li><li class="chapter-item expanded "><a href="auth.html">Auth + RBAC + API keys</a></li><li class="chapter-item expanded "><a href="deployment.html">Deployment</a></li><li class="chapter-item expanded "><a href="troubleshooting.html">Troubleshooting</a></li><li class="chapter-item expanded affix "><li class="part-title">Reference</li><li class="chapter-item expanded "><a href="architecture.html">Architecture</a></li><li class="chapter-item expanded "><a href="compat.html" class="active">Compatibility w/ Autosys + Cronicle</a></li><li class="chapter-item expanded "><a href="roadmap.html">Roadmap</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">rusty-sched</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/jdp5949/rusty-sched" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/jdp5949/rusty-sched/edit/main/docs/book/src/compat.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="compatibility-with-autosys--cronicle"><a class="header" href="#compatibility-with-autosys--cronicle">Compatibility with Autosys + Cronicle</a></h1>
+<h2 id="autosys-coverage"><a class="header" href="#autosys-coverage">Autosys coverage</a></h2>
+<h3 id="jil-attributes"><a class="header" href="#jil-attributes">JIL attributes</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Attribute</th><th>Status</th><th>Notes</th></tr></thead><tbody>
+<tr><td><code>job_type</code> (c/box/fw)</td><td>✅</td><td></td></tr>
+<tr><td><code>command</code> / <code>machine</code> / <code>owner</code></td><td>✅</td><td>machine → <code>Target::Tag</code></td></tr>
+<tr><td><code>days_of_week</code> / <code>start_times</code></td><td>✅</td><td>composed into cron</td></tr>
+<tr><td><code>condition</code></td><td>✅</td><td>DSL evaluator wired</td></tr>
+<tr><td><code>alarm_if_fail</code> / <code>n_retrys</code> / <code>term_run_time</code> / <code>description</code> / <code>std_out_file</code> / <code>std_err_file</code> / <code>box_name</code></td><td>✅</td><td></td></tr>
+<tr><td><code>exclude_calendar</code></td><td>✅</td><td>name resolved at apply step</td></tr>
+<tr><td><code>must_start_times</code> / <code>must_complete_times</code></td><td>✅ data + helper; ⏳ runtime alert dispatch</td><td></td></tr>
+<tr><td><code>fail_codes</code> / <code>max_exit_success</code> / <code>condition_code</code></td><td>✅</td><td>mapped to <code>ExitCodePolicy</code></td></tr>
+<tr><td><code>box_success</code> / <code>box_failure</code></td><td>✅ data + evaluator; ⏳ runtime kill-on-failure</td><td></td></tr>
+<tr><td><code>box_terminator</code> / <code>job_terminator</code> / <code>auto_hold</code></td><td>✅ data; ⏳ runtime</td><td></td></tr>
+<tr><td><code>resources</code></td><td>✅</td><td>atomic acquire/release</td></tr>
+<tr><td><code>date_conditions</code> / <code>timezone</code> / <code>run_calendar</code> / <code>max_run_alarm</code> / <code>watch_file*</code> / <code>profile</code> / <code>application</code> / <code>group</code> / <code>permission</code></td><td>⏳ recognized + warning, not yet mapped</td><td></td></tr>
+</tbody></table>
+</div>
+<h3 id="condition-dsl"><a class="header" href="#condition-dsl">Condition DSL</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Function</th><th>Status</th></tr></thead><tbody>
+<tr><td><code>success/failure/done(job)</code></td><td>✅</td></tr>
+<tr><td><code>running/notrunning(job)</code></td><td>✅</td></tr>
+<tr><td><code>exitcode(j) &lt;op&gt; N</code></td><td>✅</td></tr>
+<tr><td><code>success/failure/done(j, HH.MM)</code> look-back</td><td>✅</td></tr>
+<tr><td><code>numrun/numsuc/numfail(j [, HH.MM]) &lt;op&gt; N</code></td><td>✅</td></tr>
+<tr><td><code>value(name)</code></td><td>✅ resolves to globals</td></tr>
+<tr><td><code>and / or / not</code> + parens</td><td>✅</td></tr>
+</tbody></table>
+</div>
+<h3 id="sendevent-verbs"><a class="header" href="#sendevent-verbs">sendevent verbs</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Verb</th><th>Status</th></tr></thead><tbody>
+<tr><td><code>STARTJOB</code> / <code>FORCE_STARTJOB</code></td><td>✅</td></tr>
+<tr><td><code>KILLJOB</code></td><td>✅</td></tr>
+<tr><td><code>ON_HOLD</code> / <code>OFF_HOLD</code></td><td>✅</td></tr>
+<tr><td><code>CHANGE_STATUS=X</code></td><td>✅</td></tr>
+<tr><td><code>SEND_SIGNAL=X</code></td><td>✅ (unix only)</td></tr>
+<tr><td><code>SET_GLOBAL</code></td><td>✅ via <code>cli global set</code></td></tr>
+<tr><td><code>JOB_ON_ICE</code> / <code>JOB_OFF_ICE</code></td><td>✅ aliased to ON_HOLD/OFF_HOLD</td></tr>
+<tr><td><code>CHANGE_PRIORITY</code></td><td>⏳ not yet</td></tr>
+<tr><td><code>COMMENT</code> / <code>RUN_REPORT</code></td><td>⏳ not yet</td></tr>
+</tbody></table>
+</div>
+<h3 id="autorep"><a class="header" href="#autorep">autorep</a></h3>
+<ul>
+<li><code>autorep -J &lt;name&gt;</code> ✅</li>
+<li><code>autorep -A</code> ✅</li>
+<li><code>autorep -M</code> (machines/agents) ⏳ pending M4-full</li>
+<li><code>autorep -B</code> (boxes report) ⏳</li>
+</ul>
+<h2 id="cronicle-coverage"><a class="header" href="#cronicle-coverage">Cronicle coverage</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Feature</th><th>Status</th></tr></thead><tbody>
+<tr><td>Web dashboard</td><td>✅</td></tr>
+<tr><td>Real-time live log tail</td><td>✅ via WebSocket</td></tr>
+<tr><td>Dark / light theme</td><td>✅</td></tr>
+<tr><td>Multi-page UI (Jobs / Resources / Globals / API keys / Users / Audit)</td><td>✅</td></tr>
+<tr><td>Job filter / search</td><td>✅</td></tr>
+<tr><td>Job stats (success rate + p50/p99)</td><td>✅ from M21</td></tr>
+<tr><td>API keys</td><td>✅</td></tr>
+<tr><td>User auth + RBAC</td><td>✅</td></tr>
+<tr><td>Plugins (JSON-over-stdio)</td><td>⏳ planned v0.7.2</td></tr>
+<tr><td>Multi-server failover + auto-discovery</td><td>⏳ planned v0.8 (Raft)</td></tr>
+<tr><td>Performance graphs (CPU/mem time series)</td><td>⏳ end-of-run snapshot in v0.7.1; chart coming</td></tr>
+<tr><td>Email + Slack + Webhook notifications</td><td>✅</td></tr>
+</tbody></table>
+</div>
+<h2 id="what-rusty-sched-offers-beyond-either"><a class="header" href="#what-rusty-sched-offers-beyond-either">What rusty-sched offers beyond either</a></h2>
+<ul>
+<li><strong>Single Rust binary</strong> — no Java runtime, no Node.js install, no
+Python venv.</li>
+<li><strong>Full Postgres backend</strong> via sqlx::Any — drop-in for HA / shared state.</li>
+<li><strong>JIL → REST translation</strong> — keep existing Autosys job definitions,
+manage them via a modern API.</li>
+<li><strong>RBAC + API keys built-in</strong> — Cronicle's API key UX, AutoSys's
+permission model, neither requires a plugin.</li>
+<li><strong>Audit log on every mutation</strong>, queryable via REST + UI.</li>
+<li><strong>MIT license, OSS.</strong></li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="architecture.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="roadmap.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="architecture.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="roadmap.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+    </div>
+    </body>
+</html>
