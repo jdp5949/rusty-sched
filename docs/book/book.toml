@@ -1,0 +1,17 @@
+[book]
+title = "rusty-sched"
+description = "Reliable job scheduler in Rust — OSS Autosys with a Cronicle-grade UI."
+authors = ["rusty-sched contributors"]
+language = "en"
+src = "src"
+
+[output.html]
+default-theme = "rust"
+preferred-dark-theme = "ayu"
+git-repository-url = "https://github.com/jdp5949/rusty-sched"
+edit-url-template = "https://github.com/jdp5949/rusty-sched/edit/main/docs/book/{path}"
+no-section-label = true
+
+[output.html.fold]
+enable = true
+level = 1

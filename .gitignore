@@ -28,3 +28,6 @@ Thumbs.db
 # Env
 .env
 .env.local
+
+# mdBook output
+/docs/book/book
