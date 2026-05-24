@@ -158,7 +158,7 @@ fn parse_cookie(header: &str, name: &str) -> Option<String> {
 }
 
 async fn resolve_session(state: &AppState, token: &str) -> Option<AuthCtx> {
-    let (uid, _exp) = state
+    let (uid, _exp, _csrf) = state
         .store
         .sessions()
         .get_valid(token, Utc::now())
@@ -224,7 +224,7 @@ pub(crate) async fn login(
     let exp = Utc::now() + chrono::Duration::hours(SESSION_TTL_HOURS);
     s.store
         .sessions()
-        .insert(&token, user.id, exp, None)
+        .insert(&token, user.id, exp, None, None)
         .await?;
     s.store
         .audit()

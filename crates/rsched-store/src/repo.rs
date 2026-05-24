@@ -1407,38 +1407,48 @@ pub struct SessionRepo<'a> {
 
 impl<'a> SessionRepo<'a> {
     /// Insert a session. The token should be a cryptographically random string.
+    ///
+    /// `csrf_token` is an optional CSRF double-submit token, stored alongside
+    /// the session row. New sessions created by the API login flow always
+    /// include one; rows backfilled from a pre-v0.4.2 install have `NULL`
+    /// which the middleware treats as "no CSRF check enforced".
     pub async fn insert(
         &self,
         token: &str,
         user_id: UserId,
         expires_at: DateTime<Utc>,
         ip: Option<&str>,
+        csrf_token: Option<&str>,
     ) -> Result<(), StoreError> {
         let now = Utc::now().to_rfc3339();
         sqlx::query(
-            "INSERT INTO sessions (token, user_id, expires_at, created_at, ip) \
-             VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO sessions (token, user_id, expires_at, created_at, ip, csrf_token) \
+             VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(token)
         .bind(user_id.to_string())
         .bind(expires_at.to_rfc3339())
         .bind(now)
         .bind(ip)
+        .bind(csrf_token)
         .execute(self.pool)
         .await?;
         Ok(())
     }
 
-    /// Look up session by token, returning the (user_id, expires_at) if alive.
+    /// Look up session by token, returning the (user_id, expires_at,
+    /// csrf_token) if alive. `csrf_token` is `None` for rows backfilled
+    /// from before the CSRF migration.
     pub async fn get_valid(
         &self,
         token: &str,
         now: DateTime<Utc>,
-    ) -> Result<Option<(UserId, DateTime<Utc>)>, StoreError> {
-        let row = sqlx::query("SELECT user_id, expires_at FROM sessions WHERE token = ?")
-            .bind(token)
-            .fetch_optional(self.pool)
-            .await?;
+    ) -> Result<Option<(UserId, DateTime<Utc>, Option<String>)>, StoreError> {
+        let row =
+            sqlx::query("SELECT user_id, expires_at, csrf_token FROM sessions WHERE token = ?")
+                .bind(token)
+                .fetch_optional(self.pool)
+                .await?;
         let row = match row {
             Some(r) => r,
             None => return Ok(None),
@@ -1452,7 +1462,8 @@ impl<'a> SessionRepo<'a> {
         if exp <= now {
             return Ok(None);
         }
-        Ok(Some((uid, exp)))
+        let csrf: Option<String> = row.try_get("csrf_token").ok();
+        Ok(Some((uid, exp, csrf)))
     }
 
     /// Delete a session (logout).
@@ -1886,7 +1897,7 @@ mod auth_tests {
         let exp = Utc::now() + chrono::Duration::hours(1);
         store
             .sessions()
-            .insert("tok-abc", uid, exp, None)
+            .insert("tok-abc", uid, exp, None, Some("csrf-abc"))
             .await
             .unwrap();
         let got = store
@@ -1894,12 +1905,13 @@ mod auth_tests {
             .get_valid("tok-abc", Utc::now())
             .await
             .unwrap();
-        assert!(got.is_some());
+        let (_uid, _exp, csrf) = got.expect("alive session");
+        assert_eq!(csrf.as_deref(), Some("csrf-abc"));
         // Expired session: insert past expiry.
         let past = Utc::now() - chrono::Duration::hours(1);
         store
             .sessions()
-            .insert("tok-old", uid, past, None)
+            .insert("tok-old", uid, past, None, None)
             .await
             .unwrap();
         assert!(store
