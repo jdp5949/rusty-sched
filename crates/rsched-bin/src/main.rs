@@ -8,6 +8,8 @@
 //!
 //! Raft HA mode (multi-node) is M10 (deferred).
 
+mod agent_mode;
+
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -52,9 +54,15 @@ enum Cmd {
         #[arg(long, env = "RSCHED_DB")]
         db: Option<String>,
     },
-    /// Run the execution agent on this host (M4 remote agent; today this is
-    /// a placeholder — single-node `server` uses an embedded LocalExecutor).
-    Agent,
+    /// Run the execution agent on this host. v0.5.2 skeleton — binds a
+    /// tonic gRPC server and accepts the bidi `Stream` RPC defined in
+    /// `rsched-proto`. mTLS cert wiring is stubbed (self-signed cert is
+    /// generated and its SHA-256 fingerprint logged at startup).
+    Agent {
+        /// Bind address.
+        #[arg(long, env = "RSCHED_AGENT_BIND", default_value = "0.0.0.0:7443")]
+        bind: String,
+    },
     /// CLI client (list / apply / trigger / pause / resume).
     Cli(rsched_cli::Cli),
     /// Print version + build info.
@@ -78,9 +86,7 @@ async fn main() -> Result<()> {
         Cmd::Server { bind, db_url, db } => {
             run_server(&bind, db_url.as_deref(), db.as_deref()).await
         }
-        Cmd::Agent => {
-            anyhow::bail!("standalone agent process is M4 (gRPC). Today the server runs jobs in-process via LocalExecutor.");
-        }
+        Cmd::Agent { bind } => agent_mode::run_agent(&bind).await,
         Cmd::Cli(c) => rsched_cli::run_cli(c).await,
         Cmd::Version => {
             println!("rusty-sched {}", env!("CARGO_PKG_VERSION"));
