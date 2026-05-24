@@ -21,6 +21,9 @@ pub enum ApiError {
     /// Authenticated but lacks required role.
     #[error("forbidden")]
     Forbidden,
+    /// Request conflicts with current state (e.g. webhook replay within dedup window).
+    #[error("conflict: {0}")]
+    Conflict(String),
     /// Backend storage failure.
     #[error("store: {0}")]
     Store(#[from] rsched_store::StoreError),
@@ -39,6 +42,7 @@ impl IntoResponse for ApiError {
             ApiError::NotFound(m) => (StatusCode::NOT_FOUND, m.clone()),
             ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized".into()),
             ApiError::Forbidden => (StatusCode::FORBIDDEN, "forbidden".into()),
+            ApiError::Conflict(m) => (StatusCode::CONFLICT, m.clone()),
             ApiError::Store(e) => match e {
                 rsched_store::StoreError::NotFound(m) => (StatusCode::NOT_FOUND, m.clone()),
                 _ => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),

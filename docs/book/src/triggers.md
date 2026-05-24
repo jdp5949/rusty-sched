@@ -86,6 +86,29 @@ Fires when an HTTP POST hits a server-issued URL. Reserved for v0.3.3.
 The slug must be ≥ 8 chars and the secret ≥ 16 chars. HMAC-SHA256 of the
 body is checked against the `X-Sig` header on each request.
 
+### Replay protection (v0.3.4+)
+
+After HMAC verification the receiver records `sha256(body)` for the slug
+in an in-process cache. Subsequent identical requests within the dedup
+window return **`409 Conflict`** with
+`{"error":"duplicate request within replay window"}`. This blocks an
+attacker who captures a valid signed request from re-firing the job
+indefinitely.
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `RSCHED_WEBHOOK_DEDUP_WINDOW_SECS` | `300` | TTL (seconds) of a fingerprint |
+| `RSCHED_WEBHOOK_DEDUP_MAX` | `10000` | Cap on cached fingerprints (oldest evicted) |
+
+**Limitations.** The cache is **per-process**. A multi-replica
+deployment (Raft / load-balanced API) will not dedup across replicas in
+v0.3.4 — a request hitting two different nodes inside the window can
+still fire twice. A shared coordinator (Raft log or Redis) is planned
+but out of scope for this release.
+
+A background task prunes expired entries every 60s; entries also expire
+lazily when the slot is reused.
+
 ## Misfire policy
 
 `Job.misfire` controls what the tick loop does for fires that were missed
