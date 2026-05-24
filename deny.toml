@@ -4,7 +4,11 @@ all-features = true
 [advisories]
 version = 2
 yanked = "warn"
-ignore = []
+ignore = [
+    # `instant` is unmaintained but pulled in transitively by `notify` (file
+    # watcher in v0.3.3). Remove once notify drops the dep.
+    "RUSTSEC-2024-0384",
+]
 
 [licenses]
 version = 2

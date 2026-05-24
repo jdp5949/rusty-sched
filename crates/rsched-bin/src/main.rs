@@ -258,6 +258,15 @@ async fn run_server(
         }
     });
 
+    // File-trigger watcher: rescan jobs every 10s, maintain a notify Watcher
+    // over the union of all `Trigger::File { path }` paths. On a matching
+    // filesystem event, set next_fire_at = now for any job whose mask
+    // accepts the event.
+    let fw_store = store.clone();
+    tokio::spawn(async move {
+        file_watcher_loop(fw_store).await;
+    });
+
     // HTTP server: API + UI both routed.
     let state = AppState::with_registry(store, registry);
     if let Err(e) = seed_admin_if_empty(&state).await {
@@ -319,6 +328,128 @@ async fn shutdown_signal() {
         _ = terminate => {}
     }
     info!("shutdown signal received");
+}
+
+/// File-trigger watcher loop.
+///
+/// Every 10s, scan all jobs with `Trigger::File { path, event }` and rebuild
+/// the notify Watcher when the path set changes. On any inotify event, look
+/// up the matching jobs and set `next_fire_at = now` for those whose event
+/// mask accepts the kind.
+async fn file_watcher_loop(store: rsched_store::Store) {
+    use notify::{RecursiveMode, Watcher};
+    use rsched_core::Trigger;
+    use std::collections::{HashMap, HashSet};
+
+    let (ev_tx, mut ev_rx) = tokio::sync::mpsc::unbounded_channel::<notify::Event>();
+    let watcher_result = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+        if let Ok(ev) = res {
+            let _ = ev_tx.send(ev);
+        }
+    });
+    let mut watcher = match watcher_result {
+        Ok(w) => w,
+        Err(e) => {
+            warn!(error = %e, "file watcher init failed; file triggers disabled");
+            return;
+        }
+    };
+    let mut watched: HashSet<String> = HashSet::new();
+    let mut last_rescan = std::time::Instant::now()
+        .checked_sub(Duration::from_secs(60))
+        .unwrap_or_else(std::time::Instant::now);
+
+    loop {
+        // Periodic rescan to pick up new/removed file-trigger jobs.
+        if last_rescan.elapsed() >= Duration::from_secs(10) {
+            last_rescan = std::time::Instant::now();
+            let jobs = match store.jobs().list().await {
+                Ok(j) => j,
+                Err(e) => {
+                    warn!(error = %e, "file watcher: jobs list failed");
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    continue;
+                }
+            };
+            let mut wanted: HashSet<String> = HashSet::new();
+            for j in &jobs {
+                if let Trigger::File { path, .. } = &j.trigger {
+                    if !j.paused {
+                        wanted.insert(path.clone());
+                    }
+                }
+            }
+            for new in wanted.difference(&watched) {
+                let p = std::path::Path::new(new);
+                if let Err(e) = watcher.watch(p, RecursiveMode::NonRecursive) {
+                    warn!(path = %new, error = %e, "file watcher: watch() failed");
+                }
+            }
+            for gone in watched.difference(&wanted) {
+                let p = std::path::Path::new(gone);
+                let _ = watcher.unwatch(p);
+            }
+            watched = wanted;
+        }
+
+        // Drain events with a short timeout so we re-check rescan time.
+        let recv_timeout = tokio::time::timeout(Duration::from_secs(1), ev_rx.recv()).await;
+        let Ok(Some(ev)) = recv_timeout else {
+            continue;
+        };
+        // Re-load jobs to map paths → jobs (could cache but rescans are cheap).
+        let jobs = match store.jobs().list().await {
+            Ok(j) => j,
+            Err(_) => continue,
+        };
+        let mut by_path: HashMap<String, Vec<&rsched_core::Job>> = HashMap::new();
+        for j in &jobs {
+            if let Trigger::File { path, .. } = &j.trigger {
+                by_path.entry(path.clone()).or_default().push(j);
+            }
+        }
+        for p in &ev.paths {
+            let key = p.to_string_lossy().to_string();
+            // Match the exact path or its parent.
+            let mut targets: Vec<&rsched_core::Job> = Vec::new();
+            if let Some(v) = by_path.get(&key) {
+                targets.extend(v.iter().copied());
+            }
+            if let Some(parent) = p.parent() {
+                let pk = parent.to_string_lossy().to_string();
+                if pk != key {
+                    if let Some(v) = by_path.get(&pk) {
+                        targets.extend(v.iter().copied());
+                    }
+                }
+            }
+            for j in targets {
+                let want = match &j.trigger {
+                    Trigger::File { event, .. } => event.clone(),
+                    _ => continue,
+                };
+                if !event_matches(&ev.kind, &want) {
+                    continue;
+                }
+                let _ = store
+                    .jobs()
+                    .set_next_fire(j.id, Some(chrono::Utc::now()))
+                    .await;
+                info!(job = %j.name, path = %key, event = ?ev.kind, "file trigger fired");
+            }
+        }
+    }
+}
+
+fn event_matches(kind: &notify::EventKind, want: &str) -> bool {
+    use notify::EventKind;
+    match want {
+        "any" => true,
+        "create" => matches!(kind, EventKind::Create(_)),
+        "modify" => matches!(kind, EventKind::Modify(_)),
+        "delete" => matches!(kind, EventKind::Remove(_)),
+        _ => false,
+    }
 }
 
 #[cfg(test)]

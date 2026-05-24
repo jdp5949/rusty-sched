@@ -1,6 +1,28 @@
 # Project notes — post v0.1.0 (2026-05-19)
 
-## v1.0-alpha docs (in progress — branch `feat/v1.0-alpha-mdbook-docs`, 2026-05-23)
+## v0.3.3 (in progress — branch `feat/v0.3.3-file-webhook-triggers`, 2026-05-23)
+
+Runtime wiring for the two non-time triggers whose data model has been in
+place since v0.1: `Trigger::File` and `Trigger::Webhook`.
+
+### Shipped
+- **Webhook receiver:** `POST /api/v1/webhooks/:slug`. Looks up the job
+  whose `Trigger::Webhook { slug, secret }` matches; verifies HMAC-SHA256
+  of the body against the `X-Sig` header (constant-time compare); fires
+  the job by setting `next_fire_at = now`. Unauthenticated route — the
+  HMAC is the authenticator. Audits `webhook.fire`.
+- **File watcher:** background task in `rsched-bin` spawns one `notify`
+  watcher per unique path across all `Trigger::File { path, event }`
+  jobs. Re-scans every 10s to pick up added / removed file-trigger jobs.
+  Maps inotify events to job mask (`create` / `modify` / `delete` / `any`)
+  and fires on match.
+
+### Out of scope
+- Replay-dedup window (would need a 5-min in-memory cache of body hashes)
+- Recursive watches (NonRecursive only — explicit per path)
+- Glob patterns in file paths
+
+## v1.0-alpha docs (merged 2026-05-23 — PR #41)
 
 mdBook docs site under `docs/book/`. Published to
 `https://jdp5949.github.io/rusty-sched/book/` via GitHub Actions.
