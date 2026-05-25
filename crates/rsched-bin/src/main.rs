@@ -41,9 +41,10 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Run the scheduler server (single-node; Raft HA is M10).
+    /// Run the scheduler server (single-node by default; pass --peers +
+    /// --node-id to enable the v0.8-alpha Raft skeleton).
     Server {
-        /// Bind address.
+        /// Bind address for the HTTP API + UI.
         #[arg(long, env = "RSCHED_BIND", default_value = "0.0.0.0:8080")]
         bind: String,
         /// Database URL (sqlite:… or postgres://…). Overrides --db.
@@ -53,6 +54,23 @@ enum Cmd {
         /// SQLite file path (legacy). Ignored when --db-url is set.
         #[arg(long, env = "RSCHED_DB")]
         db: Option<String>,
+        /// Comma-separated peer list `id@host:port,…` for the Raft cluster.
+        /// When set, the server boots the v0.8-alpha Raft skeleton alongside
+        /// the single-node tick loop.
+        #[arg(long, env = "RSCHED_PEERS", value_delimiter = ',')]
+        peers: Vec<String>,
+        /// This node's stable Raft id (required when --peers is set).
+        #[arg(long, env = "RSCHED_NODE_ID")]
+        node_id: Option<u64>,
+        /// Bind address for the Raft gRPC listener.
+        #[arg(long, env = "RSCHED_RAFT_BIND", default_value = "0.0.0.0:9100")]
+        raft_bind: String,
+    },
+    /// Cluster operations — placeholders for the v0.8 Raft REST surface.
+    Cluster {
+        /// Cluster subcommand.
+        #[command(subcommand)]
+        cmd: ClusterCmd,
     },
     /// Run the execution agent on this host. v0.5.2 skeleton — binds a
     /// tonic gRPC server and accepts the bidi `Stream` RPC defined in
@@ -69,6 +87,34 @@ enum Cmd {
     Version,
 }
 
+/// `cluster` subcommands — every one is a stubbed placeholder until the
+/// Raft REST surface lands in v0.8.
+#[derive(Subcommand)]
+enum ClusterCmd {
+    /// Show cluster status (leader, peers, last applied log).
+    Status {
+        /// Cluster REST endpoint to hit.
+        #[arg(long, env = "RSCHED_URL", default_value = "http://localhost:8080")]
+        url: String,
+    },
+    /// Add a new peer to the cluster membership.
+    Join {
+        /// Cluster REST endpoint to hit.
+        #[arg(long, env = "RSCHED_URL", default_value = "http://localhost:8080")]
+        url: String,
+        /// New peer in `id@host:port` form.
+        peer: String,
+    },
+    /// Remove a peer from the cluster membership.
+    Leave {
+        /// Cluster REST endpoint to hit.
+        #[arg(long, env = "RSCHED_URL", default_value = "http://localhost:8080")]
+        url: String,
+        /// Node id to evict.
+        node_id: u64,
+    },
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let fmt = tracing_subscriber::fmt().with_env_filter(
@@ -83,10 +129,26 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::Server { bind, db_url, db } => {
-            run_server(&bind, db_url.as_deref(), db.as_deref()).await
+        Cmd::Server {
+            bind,
+            db_url,
+            db,
+            peers,
+            node_id,
+            raft_bind,
+        } => {
+            run_server(
+                &bind,
+                db_url.as_deref(),
+                db.as_deref(),
+                &peers,
+                node_id,
+                &raft_bind,
+            )
+            .await
         }
         Cmd::Agent { bind } => agent_mode::run_agent(&bind).await,
+        Cmd::Cluster { cmd } => run_cluster_cmd(cmd).await,
         Cmd::Cli(c) => rsched_cli::run_cli(c).await,
         Cmd::Version => {
             println!("rusty-sched {}", env!("CARGO_PKG_VERSION"));
@@ -95,10 +157,46 @@ async fn main() -> Result<()> {
     }
 }
 
+/// Parse a peer spec `id@host:port` into a [`rsched_raft::Node`].
+fn parse_peer(s: &str) -> Result<rsched_raft::Node> {
+    let (id_str, addr) = s
+        .split_once('@')
+        .ok_or_else(|| anyhow::anyhow!("peer spec {s:?} missing '@' (expected id@host:port)"))?;
+    let id: u64 = id_str
+        .parse()
+        .with_context(|| format!("peer id {id_str:?} is not a valid u64"))?;
+    if addr.is_empty() {
+        anyhow::bail!("peer spec {s:?} has empty address");
+    }
+    Ok(rsched_raft::Node::new(id, addr))
+}
+
+/// Cluster subcommand dispatcher — every variant is a stub that prints
+/// "not implemented" and exits 0. The real REST surface lands in v0.8.
+async fn run_cluster_cmd(cmd: ClusterCmd) -> Result<()> {
+    match cmd {
+        ClusterCmd::Status { url } => {
+            println!("cluster status @ {url}: not implemented (Raft REST surface is v0.8)");
+        }
+        ClusterCmd::Join { url, peer } => {
+            println!(
+                "cluster join @ {url}: peer {peer}: not implemented (Raft REST surface is v0.8)"
+            );
+        }
+        ClusterCmd::Leave { url, node_id } => {
+            println!("cluster leave @ {url}: node {node_id}: not implemented (Raft REST surface is v0.8)");
+        }
+    }
+    Ok(())
+}
+
 async fn run_server(
     bind: &str,
     db_url: Option<&str>,
     db_path_override: Option<&str>,
+    peers: &[String],
+    node_id: Option<u64>,
+    raft_bind: &str,
 ) -> Result<()> {
     let url: String = if let Some(u) = db_url {
         u.to_string()
@@ -121,6 +219,26 @@ async fn run_server(
     let store = Store::with_url(pool, &url);
     store.migrate().await?;
     let store_arc = Arc::new(store.clone());
+
+    // Optional Raft skeleton (v0.8-alpha). When --peers is set, spin up the
+    // openraft scaffolding; otherwise stay in pure single-node mode.
+    let _raft = if !peers.is_empty() {
+        let node_id = node_id.ok_or_else(|| {
+            anyhow::anyhow!("--node-id is required when --peers is set (env: RSCHED_NODE_ID)")
+        })?;
+        let parsed: Vec<rsched_raft::Node> =
+            peers.iter().map(|p| parse_peer(p)).collect::<Result<_>>()?;
+        let r = rsched_raft::RsRaft::start(node_id, store_arc.clone(), parsed, raft_bind).await?;
+        info!(
+            node_id = r.node_id(),
+            peers = r.peers().len(),
+            raft_bind = r.bind(),
+            "raft mode active (stub)"
+        );
+        Some(r)
+    } else {
+        None
+    };
 
     let registry = Arc::new(HandleRegistry::new());
     let (dispatcher, mut dispatch_rx) = Dispatcher::bounded(10_000);

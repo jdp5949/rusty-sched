@@ -86,6 +86,9 @@ url = "2"
 # File watch
 notify = "7"
 
+# Raft / consensus (M10 / v0.8 — skeleton only)
+openraft = { version = "0.9", features = ["serde"] }
+
 # Metrics
 metrics = "0.24"
 metrics-exporter-prometheus = "0.16"
