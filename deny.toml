@@ -8,6 +8,9 @@ ignore = [
     # `instant` is unmaintained but pulled in transitively by `notify` (file
     # watcher in v0.3.3). Remove once notify drops the dep.
     "RUSTSEC-2024-0384",
+    # `rustls-pemfile` v1 is unmaintained but pulled in transitively by
+    # `tonic` / `tokio-rustls` for mTLS (v0.5.2). Drop once tonic upgrades.
+    "RUSTSEC-2025-0134",
 ]
 
 [licenses]

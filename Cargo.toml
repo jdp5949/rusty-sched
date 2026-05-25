@@ -37,6 +37,7 @@ axum = { version = "0.7", features = ["ws", "macros"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors", "compression-gzip"] }
 tonic = { version = "0.12", features = ["tls", "tls-roots"] }
+tonic-build = "0.12"
 prost = "0.13"
 hyper = "1.5"
 hyper-util = "0.1"

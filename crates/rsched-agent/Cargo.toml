@@ -9,6 +9,7 @@ authors.workspace = true
 
 [dependencies]
 rsched-core = { path = "../rsched-core" }
+rsched-proto = { path = "../rsched-proto" }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 chrono = { workspace = true }
@@ -17,6 +18,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
+tonic = { workspace = true }
 tracing = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]

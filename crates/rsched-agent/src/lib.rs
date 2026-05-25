@@ -12,8 +12,10 @@
 
 mod error;
 mod exec;
+mod grpc;
 mod local;
 
 pub use error::AgentError;
 pub use exec::{Executor, LogChunk, LogStream, RunHandle, RunOutcome, Stream};
+pub use grpc::GrpcExecutor;
 pub use local::LocalExecutor;
