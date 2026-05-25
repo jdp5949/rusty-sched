@@ -15,6 +15,9 @@ pub enum Stream {
     Stdout,
     /// Standard error.
     Stderr,
+    /// Structured event from a Cronicle-compatible plugin
+    /// (JSON line with `progress`/`perf`/`complete`/`description` keys).
+    Plugin,
 }
 
 /// One chunk of streamed log output.

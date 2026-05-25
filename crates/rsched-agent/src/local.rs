@@ -7,9 +7,10 @@ use bytes::Bytes;
 use chrono::Utc;
 use rsched_core::{Job, RunId, Shell};
 use std::process::Stdio;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::io::AsyncReadExt;
-use tokio::process::{Child, Command};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::process::{Child, ChildStdout, Command};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::{debug, warn};
@@ -32,15 +33,40 @@ impl Executor for LocalExecutor {
         let (kill_tx, mut kill_rx) = mpsc::channel::<()>(1);
         let (signal_tx, mut signal_rx) = mpsc::channel::<i32>(4);
 
+        let is_plugin = matches!(job.shell, Shell::Plugin);
+        let plugin_exit: Arc<Mutex<Option<i32>>> = Arc::new(Mutex::new(None));
+        let plugin_complete: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
+
         let mut child = spawn_child(&job)?;
         let pid = child.id();
-        let mut stdout = child.stdout.take().expect("stdout piped");
+        let stdout = child.stdout.take().expect("stdout piped");
         let mut stderr = child.stderr.take().expect("stderr piped");
+
+        // Plugin: write a single JSON line to stdin then close.
+        if is_plugin {
+            if let Some(mut stdin) = child.stdin.take() {
+                let payload = build_plugin_stdin(run_id, &job);
+                tokio::spawn(async move {
+                    if let Err(e) = stdin.write_all(payload.as_bytes()).await {
+                        warn!(%run_id, error = %e, "plugin stdin write failed");
+                    }
+                    let _ = stdin.shutdown().await;
+                });
+            }
+        }
 
         let log_tx_o = log_tx.clone();
         let log_tx_e = log_tx;
-        let stdout_task =
-            tokio::spawn(async move { stream_pipe(&mut stdout, Stream::Stdout, log_tx_o).await });
+        let stdout_task = if is_plugin {
+            let exit_slot = plugin_exit.clone();
+            let complete_slot = plugin_complete.clone();
+            tokio::spawn(async move {
+                stream_plugin_stdout(stdout, log_tx_o, exit_slot, complete_slot).await
+            })
+        } else {
+            let mut stdout = stdout;
+            tokio::spawn(async move { stream_pipe(&mut stdout, Stream::Stdout, log_tx_o).await })
+        };
         let stderr_task =
             tokio::spawn(async move { stream_pipe(&mut stderr, Stream::Stderr, log_tx_e).await });
 
@@ -54,6 +80,8 @@ impl Executor for LocalExecutor {
         });
 
         let timeout_secs = job.timeout_secs;
+        let plugin_exit_o = plugin_exit.clone();
+        let plugin_complete_o = plugin_complete.clone();
         let outcome = tokio::spawn(async move {
             let timeout_fut = async {
                 if timeout_secs > 0 {
@@ -70,8 +98,21 @@ impl Executor for LocalExecutor {
                     let bytes_o = stdout_task.await.unwrap_or(0);
                     let bytes_e = stderr_task.await.unwrap_or(0);
                     let (rss, cu, cs) = capture_rusage_children();
+                    let exit_code = if is_plugin {
+                        let completed = *plugin_complete_o.lock().unwrap();
+                        if completed {
+                            *plugin_exit_o.lock().unwrap()
+                        } else {
+                            // No `complete` event — surface as failure. Prefer
+                            // the process exit code; fall back to a synthetic
+                            // non-zero so the scheduler treats this as Failed.
+                            Some(status.code().filter(|c| *c != 0).unwrap_or(-1))
+                        }
+                    } else {
+                        status.code()
+                    };
                     Ok(RunOutcome {
-                        exit_code: status.code(),
+                        exit_code,
                         timed_out: false,
                         log_bytes: bytes_o + bytes_e,
                         finished_at: Utc::now(),
@@ -114,6 +155,107 @@ impl Executor for LocalExecutor {
             signal_tx,
         })
     }
+}
+
+/// Build the JSON payload written to a Cronicle-compatible plugin's stdin.
+///
+/// Single line: `{"id":"<run_id>","params":<env-as-object>}\n`.
+pub(crate) fn build_plugin_stdin(run_id: RunId, job: &Job) -> String {
+    let params: serde_json::Map<String, serde_json::Value> = job
+        .env
+        .iter()
+        .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+        .collect();
+    let payload = serde_json::json!({
+        "id": run_id.to_string(),
+        "params": serde_json::Value::Object(params),
+    });
+    let mut s = payload.to_string();
+    s.push('\n');
+    s
+}
+
+/// Returns true if the JSON value carries at least one recognized
+/// Cronicle-plugin event key (`progress`, `perf`, `complete`, `description`).
+pub(crate) fn is_plugin_event(v: &serde_json::Value) -> bool {
+    if let Some(obj) = v.as_object() {
+        return obj.contains_key("progress")
+            || obj.contains_key("perf")
+            || obj.contains_key("complete")
+            || obj.contains_key("description");
+    }
+    false
+}
+
+/// Read plugin stdout line-by-line. JSON lines with recognized keys emit
+/// `Stream::Plugin` chunks and may set the run's exit code via a
+/// `{"complete":1,"code":N}` event. Non-JSON / unrecognized lines fall
+/// through to `Stream::Stdout`.
+async fn stream_plugin_stdout(
+    stdout: ChildStdout,
+    tx: mpsc::Sender<LogChunk>,
+    exit_slot: Arc<Mutex<Option<i32>>>,
+    complete_slot: Arc<Mutex<bool>>,
+) -> u64 {
+    let mut total: u64 = 0;
+    let mut reader = BufReader::new(stdout).lines();
+    loop {
+        match reader.next_line().await {
+            Ok(Some(line)) => {
+                total += line.len() as u64 + 1; // include \n
+                let trimmed = line.trim();
+                let parsed: Option<serde_json::Value> = if trimmed.starts_with('{') {
+                    serde_json::from_str(trimmed).ok()
+                } else {
+                    None
+                };
+                let stream = match parsed.as_ref() {
+                    Some(v) if is_plugin_event(v) => {
+                        if let Some(obj) = v.as_object() {
+                            if let Some(c) = obj.get("complete") {
+                                let is_complete = match c {
+                                    serde_json::Value::Bool(b) => *b,
+                                    serde_json::Value::Number(n) => {
+                                        n.as_i64().map(|i| i != 0).unwrap_or(false)
+                                    }
+                                    _ => false,
+                                };
+                                if is_complete {
+                                    *complete_slot.lock().unwrap() = true;
+                                    if let Some(code_v) = obj.get("code") {
+                                        if let Some(n) = code_v.as_i64() {
+                                            *exit_slot.lock().unwrap() = Some(n as i32);
+                                        }
+                                    } else {
+                                        // `complete` without `code` => success.
+                                        let mut slot = exit_slot.lock().unwrap();
+                                        if slot.is_none() {
+                                            *slot = Some(0);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Stream::Plugin
+                    }
+                    _ => Stream::Stdout,
+                };
+                let mut bytes = line.into_bytes();
+                bytes.push(b'\n');
+                let chunk = LogChunk {
+                    stream,
+                    ts: Utc::now(),
+                    bytes: Bytes::from(bytes),
+                };
+                if tx.send(chunk).await.is_err() {
+                    break;
+                }
+            }
+            Ok(None) => break,
+            Err(_) => break,
+        }
+    }
+    total
 }
 
 /// Capture `getrusage(RUSAGE_CHILDREN)` peak RSS + CPU times.
@@ -183,8 +325,27 @@ fn spawn_child(job: &Job) -> Result<Child, AgentError> {
     }
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
-    cmd.stdin(Stdio::null());
-    Ok(cmd.spawn()?)
+    // Plugin shell needs an open stdin to receive the JSON payload.
+    if matches!(job.shell, Shell::Plugin) {
+        cmd.stdin(Stdio::piped());
+    } else {
+        cmd.stdin(Stdio::null());
+    }
+    // On Linux, exec returns ETXTBSY ("Text file busy") if the target executable
+    // still has any open writer in the system — including a sibling thread that
+    // just finished writing the file. We briefly retry to absorb this race.
+    let mut last_err = None;
+    for _ in 0..10 {
+        match cmd.spawn() {
+            Ok(c) => return Ok(c),
+            Err(e) if e.raw_os_error() == Some(26) => {
+                last_err = Some(e);
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Err(last_err.unwrap().into())
 }
 
 fn build_command(job: &Job) -> Command {
@@ -225,7 +386,7 @@ fn build_command(job: &Job) -> Command {
             c.arg("-c").arg(format_shell_line(job));
             c
         }
-        Shell::None | Shell::Auto => {
+        Shell::None | Shell::Auto | Shell::Plugin => {
             let mut c = Command::new(&job.cmd);
             for a in &job.args {
                 c.arg(a);
@@ -346,5 +507,201 @@ mod tests {
         handle.kill_tx.send(()).await.unwrap();
         let result = handle.outcome.await.unwrap();
         assert!(matches!(result, Err(AgentError::Killed)));
+    }
+
+    // ---- Plugin shell tests (v0.7.4 Cronicle-compatible plugin host) ----
+
+    #[test]
+    fn plugin_shell_builds_command_directly() {
+        // Shell::Plugin must spawn `cmd` directly without any shell wrapping.
+        let mut job = JobBuilder::new("p1", "/usr/bin/plugin", cron_trigger())
+            .build()
+            .unwrap();
+        job.shell = Shell::Plugin;
+        job.args = vec!["--flag".into()];
+        let c = build_command(&job);
+        let prog = c.as_std().get_program().to_string_lossy().to_string();
+        assert_eq!(prog, "/usr/bin/plugin");
+        let args: Vec<String> = c
+            .as_std()
+            .get_args()
+            .map(|a| a.to_string_lossy().to_string())
+            .collect();
+        assert_eq!(args, vec!["--flag"]);
+    }
+
+    #[test]
+    fn plugin_stdin_payload_has_id_and_params() {
+        let mut job = JobBuilder::new("p2", "/bin/true", cron_trigger())
+            .build()
+            .unwrap();
+        job.shell = Shell::Plugin;
+        job.env.insert("FOO".into(), "bar".into());
+        let run_id = RunId::new();
+        let s = build_plugin_stdin(run_id, &job);
+        assert!(s.ends_with('\n'));
+        let v: serde_json::Value = serde_json::from_str(s.trim()).unwrap();
+        assert_eq!(v["id"], run_id.to_string());
+        assert_eq!(v["params"]["FOO"], "bar");
+    }
+
+    #[test]
+    fn is_plugin_event_recognizes_all_four_keys() {
+        let progress: serde_json::Value = serde_json::from_str(r#"{"progress":0.5}"#).unwrap();
+        let perf: serde_json::Value = serde_json::from_str(r#"{"perf":"db=1.2"}"#).unwrap();
+        let complete: serde_json::Value =
+            serde_json::from_str(r#"{"complete":1,"code":0}"#).unwrap();
+        let desc: serde_json::Value = serde_json::from_str(r#"{"description":"hi"}"#).unwrap();
+        assert!(is_plugin_event(&progress));
+        assert!(is_plugin_event(&perf));
+        assert!(is_plugin_event(&complete));
+        assert!(is_plugin_event(&desc));
+
+        let plain: serde_json::Value = serde_json::from_str(r#"{"foo":"bar"}"#).unwrap();
+        assert!(!is_plugin_event(&plain));
+    }
+
+    #[cfg(unix)]
+    fn write_plugin_script(name: &str, body: &str) -> std::path::PathBuf {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+        // Per-thread + nanos suffix avoids any collision between parallel tests
+        // sharing tmp dir. On Linux, exec() returns ETXTBSY ("Text file busy")
+        // if any process still holds a writable fd to the path — sync_all + drop
+        // before set_permissions guarantees the write fd is fully closed.
+        let tid = format!("{:?}", std::thread::current().id());
+        let path = std::env::temp_dir().join(format!(
+            "rsched-{name}-{}-{}-{}.sh",
+            std::process::id(),
+            tid.replace([' ', '(', ')'], "_"),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        {
+            let mut f = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&path)
+                .unwrap();
+            f.write_all(format!("#!/bin/sh\nread _ignored\n{body}\n").as_bytes())
+                .unwrap();
+            f.sync_all().unwrap();
+        }
+        let mut perms = std::fs::metadata(&path).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&path, perms).unwrap();
+        path
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn plugin_run_streams_events_and_uses_complete_code() {
+        // Emits a progress line + complete with code=3. Exit code MUST be 3.
+        let exe = LocalExecutor::new();
+        let path = write_plugin_script(
+            "plugin-cc",
+            r#"echo '{"progress":0.5,"description":"halfway"}'
+echo '{"complete":1,"code":3,"description":"done"}'"#,
+        );
+
+        let mut job = JobBuilder::new("p_run", path.to_string_lossy().to_string(), cron_trigger())
+            .build()
+            .unwrap();
+        job.shell = Shell::Plugin;
+        let mut handle = exe.dispatch(RunId::new(), job).await.unwrap();
+        let mut plugin_seen = 0usize;
+        let mut stdout_seen = 0usize;
+        while let Some(chunk) = handle.logs.next().await {
+            match chunk.stream {
+                Stream::Plugin => plugin_seen += 1,
+                Stream::Stdout => stdout_seen += 1,
+                Stream::Stderr => {}
+            }
+        }
+        let outcome = handle.outcome.await.unwrap().unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(outcome.exit_code, Some(3), "plugin code should override");
+        assert!(plugin_seen >= 2, "got plugin lines: {plugin_seen}");
+        assert_eq!(stdout_seen, 0, "no non-JSON lines expected");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn plugin_non_json_falls_through_to_stdout() {
+        let exe = LocalExecutor::new();
+        let path = write_plugin_script(
+            "plugin-pass",
+            "echo 'hello world'\necho '{\"complete\":1,\"code\":0}'",
+        );
+
+        let mut job = JobBuilder::new("p_pass", path.to_string_lossy().to_string(), cron_trigger())
+            .build()
+            .unwrap();
+        job.shell = Shell::Plugin;
+        let mut handle = exe.dispatch(RunId::new(), job).await.unwrap();
+        let mut plugin_seen = 0usize;
+        let mut stdout_seen = 0usize;
+        while let Some(chunk) = handle.logs.next().await {
+            match chunk.stream {
+                Stream::Plugin => plugin_seen += 1,
+                Stream::Stdout => stdout_seen += 1,
+                Stream::Stderr => {}
+            }
+        }
+        let outcome = handle.outcome.await.unwrap().unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(outcome.exit_code, Some(0));
+        assert!(plugin_seen >= 1);
+        assert!(stdout_seen >= 1, "non-JSON line must fall through");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn plugin_without_complete_event_is_failure() {
+        // Plugin exits 0 but never sends `complete` — must be marked failure.
+        let exe = LocalExecutor::new();
+        let path = write_plugin_script("plugin-nocomp", "echo '{\"progress\":0.5}'\nexit 0");
+
+        let mut job = JobBuilder::new(
+            "p_nocomp",
+            path.to_string_lossy().to_string(),
+            cron_trigger(),
+        )
+        .build()
+        .unwrap();
+        job.shell = Shell::Plugin;
+        let mut handle = exe.dispatch(RunId::new(), job).await.unwrap();
+        while handle.logs.next().await.is_some() {}
+        let outcome = handle.outcome.await.unwrap().unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_ne!(
+            outcome.exit_code,
+            Some(0),
+            "missing complete must NOT be success"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn plugin_complete_without_code_defaults_to_zero() {
+        let exe = LocalExecutor::new();
+        let path = write_plugin_script(
+            "plugin-nocode",
+            "echo '{\"complete\":1,\"description\":\"ok\"}'",
+        );
+
+        let mut job = JobBuilder::new(
+            "p_nocode",
+            path.to_string_lossy().to_string(),
+            cron_trigger(),
+        )
+        .build()
+        .unwrap();
+        job.shell = Shell::Plugin;
+        let mut handle = exe.dispatch(RunId::new(), job).await.unwrap();
+        while handle.logs.next().await.is_some() {}
+        let outcome = handle.outcome.await.unwrap().unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(outcome.exit_code, Some(0));
     }
 }

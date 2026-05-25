@@ -95,6 +95,11 @@ pub enum Shell {
     Bash,
     /// No shell — direct exec.
     None,
+    /// Cronicle-compatible plugin host. The `cmd` field is the plugin binary
+    /// path; the executor pipes a single JSON line on stdin
+    /// (`{"id":<run_id>,"params":<job.env>}`) and parses structured JSON
+    /// events from stdout (`progress`/`perf`/`complete`/`description`).
+    Plugin,
 }
 
 /// Events that fire alerts.

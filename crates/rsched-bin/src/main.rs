@@ -170,6 +170,7 @@ async fn run_server(
                         let stream_str = match chunk.stream {
                             rsched_agent::Stream::Stdout => "stdout",
                             rsched_agent::Stream::Stderr => "stderr",
+                            rsched_agent::Stream::Plugin => "plugin",
                         };
                         let ts = chunk.ts.to_rfc3339();
                         let _ = store
