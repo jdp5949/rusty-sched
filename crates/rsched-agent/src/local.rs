@@ -549,13 +549,30 @@ mod tests {
 
     #[cfg(unix)]
     fn write_plugin_script(name: &str, body: &str) -> std::path::PathBuf {
+        use std::io::Write;
         use std::os::unix::fs::PermissionsExt;
+        // Per-thread + nanos suffix avoids any collision between parallel tests
+        // sharing tmp dir. On Linux, exec() returns ETXTBSY ("Text file busy")
+        // if any process still holds a writable fd to the path — sync_all + drop
+        // before set_permissions guarantees the write fd is fully closed.
+        let tid = format!("{:?}", std::thread::current().id());
         let path = std::env::temp_dir().join(format!(
-            "rsched-{name}-{}-{}.sh",
+            "rsched-{name}-{}-{}-{}.sh",
             std::process::id(),
+            tid.replace([' ', '(', ')'], "_"),
             chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
         ));
-        std::fs::write(&path, format!("#!/bin/sh\nread _ignored\n{body}\n")).unwrap();
+        {
+            let mut f = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&path)
+                .unwrap();
+            f.write_all(format!("#!/bin/sh\nread _ignored\n{body}\n").as_bytes())
+                .unwrap();
+            f.sync_all().unwrap();
+        }
         let mut perms = std::fs::metadata(&path).unwrap().permissions();
         perms.set_mode(0o755);
         std::fs::set_permissions(&path, perms).unwrap();
