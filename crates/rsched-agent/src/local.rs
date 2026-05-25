@@ -331,7 +331,21 @@ fn spawn_child(job: &Job) -> Result<Child, AgentError> {
     } else {
         cmd.stdin(Stdio::null());
     }
-    Ok(cmd.spawn()?)
+    // On Linux, exec returns ETXTBSY ("Text file busy") if the target executable
+    // still has any open writer in the system — including a sibling thread that
+    // just finished writing the file. We briefly retry to absorb this race.
+    let mut last_err = None;
+    for _ in 0..10 {
+        match cmd.spawn() {
+            Ok(c) => return Ok(c),
+            Err(e) if e.raw_os_error() == Some(26) => {
+                last_err = Some(e);
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Err(last_err.unwrap().into())
 }
 
 fn build_command(job: &Job) -> Command {
