@@ -75,6 +75,9 @@ mod tests {
         );
     }
 
+    // Unix-only: building a sqlite URL from a Windows path (drive letter +
+    // backslashes) needs separate encoding; covered by the normalize tests.
+    #[cfg(unix)]
     #[tokio::test]
     async fn creates_sqlite_file_on_open() {
         let dir = std::env::temp_dir().join(format!("rsched-pool-{}", std::process::id()));
