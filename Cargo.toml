@@ -41,7 +41,7 @@ hyper = "1.5"
 hyper-util = "0.1"
 
 # Storage
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "postgres", "any", "macros", "migrate", "chrono", "uuid", "json"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "any", "macros", "migrate", "chrono", "uuid", "json"] }
 
 # Serde
 serde = { version = "1", features = ["derive"] }
