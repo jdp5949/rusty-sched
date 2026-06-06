@@ -1,5 +1,28 @@
 # Project notes — post v0.1.0 (2026-05-19)
 
+## v2 — Cronicle-model simplification (branch `feat/v2-cronicle-simplify`, 2026-06-06)
+
+Decision doc: `docs/superpowers/specs/2026-06-06-v2-cronicle-simplify-design.md`.
+Goal: kill solo-maintainer complexity, rebuild the UI, keep cross-OS binaries.
+
+### Shipped
+- **UI rebuild** (`crates/rsched-ui/assets/index.html`): CSS-variable theme
+  system with 4 themes (light/dark/midnight/solarized), sidebar layout,
+  Dashboard overview + aggregate Runs page. Buildless single-file React kept.
+  Verified live via Playwright screenshots.
+- **Removed Raft HA** — deleted `rsched-raft`, `--peers`/`cluster` CLI.
+- **Removed gRPC remote agents** — deleted `rsched-proto`, agent gRPC module,
+  tonic/mTLS deps. `Executor` trait kept as the seam for a future HTTP satellite.
+- **Removed Postgres** — SQLite-only store; dropped postgres migrations +
+  sqlx feature. Workspace 13 → 11 crates. All tests green; server boots.
+
+### Still TODO on this branch
+- GUI job builder (form → validated job JSON). ← in progress
+- AutoSys UI surfacing (JIL import screen, condition/box editors).
+- Move `chaos/` to `extras/`; refresh CI release workflow (no protoc needed).
+- Installer/service units still reference the removed `agent` subcommand.
+
+
 ## v0.3.3 (in progress — branch `feat/v0.3.3-file-webhook-triggers`, 2026-05-23)
 
 Runtime wiring for the two non-time triggers whose data model has been in
