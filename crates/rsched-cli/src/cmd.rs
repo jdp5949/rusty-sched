@@ -78,7 +78,7 @@ pub enum Cmd {
         /// Event name: STARTJOB / KILLJOB / ON_HOLD / OFF_HOLD.
         event: String,
     },
-    /// Parse an Autosys JIL file and apply each block to the cluster.
+    /// Parse an Autosys JIL file and apply each block to the scheduler.
     Jil {
         /// Path to the JIL file.
         #[arg(short, long)]
