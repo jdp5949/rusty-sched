@@ -16,7 +16,7 @@ Goal: kill solo-maintainer complexity, rebuild the UI, keep cross-OS binaries.
 - **Removed Postgres** — SQLite-only store; dropped postgres migrations +
   sqlx feature. Workspace 13 → 11 crates. All tests green; server boots.
 
-### Follow-ups — shipped (PR #65, v0.2.0)
+### Follow-ups — shipped (PR #65, v0.3.0)
 - ✅ GUI job builder (form → live validated JSON).
 - ✅ Server-side dashboard summary endpoint `GET /api/v1/stats/summary` (kills UI N+1).
 - ✅ JIL import: `POST /api/v1/jil` + Import JIL UI page (insert/delete; update reported unsupported).
