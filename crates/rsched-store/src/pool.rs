@@ -41,6 +41,11 @@ fn normalize_sqlite_url(url: &str) -> String {
     }
 }
 
+/// Ephemeral in-memory SQLite pool for unit tests (single shared connection).
+pub async fn open_memory() -> Result<AnyPool, StoreError> {
+    open_pool("sqlite::memory:").await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -82,9 +87,4 @@ mod tests {
         pool.close().await;
         let _ = std::fs::remove_file(&db);
     }
-}
-
-/// Ephemeral in-memory SQLite pool for unit tests (single shared connection).
-pub async fn open_memory() -> Result<AnyPool, StoreError> {
-    open_pool("sqlite::memory:").await
 }
