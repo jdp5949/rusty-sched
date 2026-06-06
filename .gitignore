@@ -31,3 +31,4 @@ Thumbs.db
 
 # mdBook output
 /docs/book/book
+.playwright-mcp/
