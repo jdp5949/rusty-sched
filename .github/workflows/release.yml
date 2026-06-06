@@ -123,7 +123,6 @@ jobs:
           bin="$(find dl -type f -name rusty-sched -perm -u+x | head -n1)"
           cp "$bin" pkgroot/usr/local/bin/rusty-sched
           chmod 0755 pkgroot/usr/local/bin/rusty-sched
-          cp installers/launchd/com.rustysched.agent.plist  pkgroot/Library/LaunchDaemons/
           cp installers/launchd/com.rustysched.server.plist pkgroot/Library/LaunchDaemons/
       - name: Build .pkg
         shell: bash

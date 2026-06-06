@@ -34,13 +34,13 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Run chaos scenarios
-        run: docker compose -f docker-compose.chaos.yml up --abort-on-container-exit --exit-code-from chaos-runner chaos-runner
+        run: docker compose -f extras/docker-compose.chaos.yml up --abort-on-container-exit --exit-code-from chaos-runner chaos-runner
       - name: Dump rusty-sched logs on failure
         if: failure()
-        run: docker compose -f docker-compose.chaos.yml logs rusty-sched || true
+        run: docker compose -f extras/docker-compose.chaos.yml logs rusty-sched || true
       - name: Tear down
         if: always()
-        run: docker compose -f docker-compose.chaos.yml down -v
+        run: docker compose -f extras/docker-compose.chaos.yml down -v
 
   notify:
     name: open issue on failure

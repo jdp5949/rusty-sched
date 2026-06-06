@@ -16,11 +16,17 @@ Goal: kill solo-maintainer complexity, rebuild the UI, keep cross-OS binaries.
 - **Removed Postgres** — SQLite-only store; dropped postgres migrations +
   sqlx feature. Workspace 13 → 11 crates. All tests green; server boots.
 
-### Still TODO on this branch
-- GUI job builder (form → validated job JSON). ← in progress
-- AutoSys UI surfacing (JIL import screen, condition/box editors).
-- Move `chaos/` to `extras/`; refresh CI release workflow (no protoc needed).
-- Installer/service units still reference the removed `agent` subcommand.
+### Follow-ups — shipped (PR #65, v0.2.0)
+- ✅ GUI job builder (form → live validated JSON).
+- ✅ Server-side dashboard summary endpoint `GET /api/v1/stats/summary` (kills UI N+1).
+- ✅ JIL import: `POST /api/v1/jil` + Import JIL UI page (insert/delete; update reported unsupported).
+- ✅ Removed agent service units; dropped protoc CI step; moved `chaos/` → `extras/`.
+- ✅ Version bump 0.1.0 → 0.2.0.
+
+### Still deferred
+- JIL `update_job` via import (use UI edit / CLI for now).
+- Condition/box visual editors.
+- Simple HTTP satellite workers (Executor seam kept).
 
 
 ## v0.3.3 (in progress — branch `feat/v0.3.3-file-webhook-triggers`, 2026-05-23)

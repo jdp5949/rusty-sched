@@ -14,6 +14,49 @@ pub struct Store {
     url: String,
 }
 
+/// Aggregate dashboard snapshot, computed server-side in one round-trip.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DashboardSummary {
+    /// Total jobs.
+    pub total_jobs: i64,
+    /// Paused jobs.
+    pub paused_jobs: i64,
+    /// Runs currently queued or running.
+    pub running: i64,
+    /// Successful runs in the last 24h.
+    pub success_24h: i64,
+    /// Failed/killed/lost runs in the last 24h.
+    pub failure_24h: i64,
+    /// success / (success + failure) over 24h; 1.0 when no runs.
+    pub success_rate_24h: f64,
+    /// Soonest upcoming non-paused jobs.
+    pub upcoming: Vec<UpcomingJob>,
+    /// Most recent failures.
+    pub recent_failures: Vec<RecentFailure>,
+}
+
+/// A job with a pending next fire, for the dashboard "upcoming" list.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct UpcomingJob {
+    /// Job id.
+    pub id: String,
+    /// Job name.
+    pub name: String,
+    /// Trigger discriminant, lower-cased (e.g. "cron").
+    pub trigger_kind: String,
+    /// Next fire time (RFC3339), if scheduled.
+    pub next_fire_at: Option<String>,
+}
+
+/// A recent failed run, for the dashboard "recent failures" list.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RecentFailure {
+    /// Job name (empty if the job was deleted).
+    pub name: String,
+    /// When it failed (RFC3339), finished_at or started_at.
+    pub at: Option<String>,
+}
+
 impl Store {
     /// Wrap an existing pool.
     pub fn new(pool: AnyPool) -> Self {
@@ -35,6 +78,83 @@ impl Store {
     pub async fn migrate(&self) -> Result<(), StoreError> {
         crate::migrator_for_url(&self.url).run(&self.pool).await?;
         Ok(())
+    }
+
+    /// Aggregate snapshot for the dashboard. Replaces the UI's per-job N+1
+    /// fan-out with a single server-side query set.
+    pub async fn dashboard_summary(&self) -> Result<DashboardSummary, StoreError> {
+        let jobs = self.jobs().list().await?;
+        let total_jobs = jobs.len() as i64;
+        let paused_jobs = jobs.iter().filter(|j| j.paused).count() as i64;
+
+        let mut up: Vec<&Job> = jobs
+            .iter()
+            .filter(|j| !j.paused && j.next_fire_at.is_some())
+            .collect();
+        up.sort_by_key(|j| j.next_fire_at);
+        let upcoming = up
+            .iter()
+            .take(8)
+            .map(|j| UpcomingJob {
+                id: j.id.to_string(),
+                name: j.name.clone(),
+                trigger_kind: format!("{:?}", j.trigger.kind()).to_lowercase(),
+                next_fire_at: j.next_fire_at.map(|t| t.to_rfc3339()),
+            })
+            .collect();
+
+        let running = self.runs().list_active().await?.len() as i64;
+
+        let cutoff = (Utc::now() - chrono::Duration::hours(24)).to_rfc3339();
+        let rows = sqlx::query(
+            "SELECT r.state AS state, r.finished_at AS finished_at, \
+                    r.started_at AS started_at, j.name AS job_name \
+             FROM runs r LEFT JOIN jobs j ON j.id = r.job_id \
+             WHERE r.queued_at > ? ORDER BY r.queued_at DESC LIMIT 1000",
+        )
+        .bind(&cutoff)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut success_24h = 0i64;
+        let mut failure_24h = 0i64;
+        let mut recent_failures: Vec<RecentFailure> = Vec::new();
+        for row in &rows {
+            let state: String = row.try_get("state").unwrap_or_default();
+            match state.as_str() {
+                "success" => success_24h += 1,
+                "failed" | "killed" | "lost" => {
+                    failure_24h += 1;
+                    if recent_failures.len() < 8 {
+                        let name: Option<String> = row.try_get("job_name").unwrap_or(None);
+                        let finished: Option<String> = row.try_get("finished_at").unwrap_or(None);
+                        let started: Option<String> = row.try_get("started_at").unwrap_or(None);
+                        recent_failures.push(RecentFailure {
+                            name: name.unwrap_or_default(),
+                            at: finished.or(started),
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+        let denom = success_24h + failure_24h;
+        let success_rate_24h = if denom > 0 {
+            success_24h as f64 / denom as f64
+        } else {
+            1.0
+        };
+
+        Ok(DashboardSummary {
+            total_jobs,
+            paused_jobs,
+            running,
+            success_24h,
+            failure_24h,
+            success_rate_24h,
+            upcoming,
+            recent_failures,
+        })
     }
 
     /// Borrow underlying pool (for transactions / advanced use).

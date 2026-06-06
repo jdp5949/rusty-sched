@@ -9,18 +9,12 @@
 .PARAMETER BinaryPath
     Full path to rusty-sched.exe. Defaults to "C:\Program Files\rusty-sched\rusty-sched.exe".
 
-.PARAMETER Mode
-    Service mode: "server" or "agent". Defaults to "server".
-
 .EXAMPLE
-    .\rusty-sched-service.ps1 -Mode server
-    .\rusty-sched-service.ps1 -Mode agent
+    .\rusty-sched-service.ps1
 #>
 
 param(
-    [string]$BinaryPath = "C:\Program Files\rusty-sched\rusty-sched.exe",
-    [ValidateSet("server", "agent")]
-    [string]$Mode = "server"
+    [string]$BinaryPath = "C:\Program Files\rusty-sched\rusty-sched.exe"
 )
 
 if (-not (Test-Path $BinaryPath)) {
@@ -28,8 +22,8 @@ if (-not (Test-Path $BinaryPath)) {
     exit 1
 }
 
-$serviceName = if ($Mode -eq "server") { "RustySchedServer" } else { "RustySchedAgent" }
-$displayName = if ($Mode -eq "server") { "rusty-sched scheduler server" } else { "rusty-sched execution agent" }
+$serviceName = "RustySchedServer"
+$displayName = "rusty-sched scheduler server"
 
 if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
     Write-Host "Service $serviceName already exists. Removing..."
@@ -39,7 +33,7 @@ if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
 
 Write-Host "Registering Windows service $serviceName ..."
 sc.exe create $serviceName `
-    binPath= "`"$BinaryPath`" $Mode" `
+    binPath= "`"$BinaryPath`" server" `
     DisplayName= "$displayName" `
     start= auto | Out-Null
 

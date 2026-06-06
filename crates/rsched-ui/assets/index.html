@@ -310,31 +310,17 @@ function Sparkline({ outcomes }) {
 
 /* ============ Dashboard ============ */
 function Dashboard({ go }) {
-  const [jobs, setJobs] = useState(null);
-  const [stats, setStats] = useState({});
+  const [s, setS] = useState(null);
+  const [err, setErr] = useState(null);
   async function load() {
-    const js = await api("GET", "/jobs");
-    setJobs(js);
-    const entries = await Promise.all(js.map(async j => {
-      try { return [j.id, await api("GET", `/stats/jobs/${j.id}`)]; } catch { return [j.id, null]; }
-    }));
-    setStats(Object.fromEntries(entries));
+    try { setS(await api("GET", "/stats/summary")); setErr(null); }
+    catch (e) { setErr(e.message); }
   }
   useEffect(() => { load(); const id = setInterval(load, 8000); return () => clearInterval(id); }, []);
-  if (!jobs) return <div className="empty">loading…</div>;
+  if (err && !s) return <div className="card card-pad alert-err">{err}</div>;
+  if (!s) return <div className="empty">loading…</div>;
 
-  const paused = jobs.filter(j => j.paused).length;
-  const allOut = Object.values(stats).flatMap(s => s ? s.recent_outcomes || [] : []);
-  const running = allOut.filter(o => o === "running").length;
-  const succ = allOut.filter(o => o === "success").length;
-  const fail = allOut.filter(o => o === "failure").length;
-  const rate = (succ + fail) ? Math.round(succ / (succ + fail) * 100) : 100;
-  const upcoming = jobs.filter(j => j.next_fire_at && !j.paused)
-    .sort((a, b) => new Date(a.next_fire_at) - new Date(b.next_fire_at)).slice(0, 6);
-  const recentFails = jobs.map(j => ({ j, s: stats[j.id] }))
-    .filter(x => x.s && x.s.last_failure_at)
-    .sort((a, b) => new Date(b.s.last_failure_at) - new Date(a.s.last_failure_at)).slice(0, 6);
-
+  const rate = Math.round(s.success_rate_24h * 100);
   const Stat = ({ label, value, sub, color }) => (
     <div className="card card-pad stat">
       <span className="label">{label}</span>
@@ -345,20 +331,20 @@ function Dashboard({ go }) {
   return (
     <div className="grid" style={{ gap: 18 }}>
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))" }}>
-        <Stat label="Jobs" value={jobs.length} sub={`${paused} paused`} />
-        <Stat label="Running now" value={running} color="var(--running)" />
-        <Stat label="Success rate" value={rate + "%"} sub="recent window" color={rate >= 90 ? "var(--success)" : rate >= 70 ? "var(--warning)" : "var(--danger)"} />
-        <Stat label="Failures" value={fail} color={fail ? "var(--danger)" : null} sub="recent window" />
+        <Stat label="Jobs" value={s.total_jobs} sub={`${s.paused_jobs} paused`} />
+        <Stat label="Running now" value={s.running} color="var(--running)" />
+        <Stat label="Success rate" value={rate + "%"} sub="last 24h" color={rate >= 90 ? "var(--success)" : rate >= 70 ? "var(--warning)" : "var(--danger)"} />
+        <Stat label="Failures" value={s.failure_24h} color={s.failure_24h ? "var(--danger)" : null} sub="last 24h" />
       </div>
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(340px,1fr))" }}>
         <div className="card">
           <div className="card-pad" style={{ paddingBottom: 8, fontWeight: 650 }}>Upcoming runs</div>
           <hr className="sep" />
-          {upcoming.length === 0 && <div className="empty" style={{ padding: 24 }}>nothing scheduled</div>}
-          {upcoming.map(j => (
+          {s.upcoming.length === 0 && <div className="empty" style={{ padding: 24 }}>nothing scheduled</div>}
+          {s.upcoming.map(j => (
             <div key={j.id} className="row" style={{ padding: "10px 18px", borderBottom: "1px solid var(--border)", cursor: "pointer" }} onClick={() => go("jobs")}>
               <span style={{ fontWeight: 550 }}>{j.name}</span>
-              <span className="tag mono">{j.trigger.kind}</span>
+              <span className="tag mono">{j.trigger_kind}</span>
               <span className="spacer" style={{ flex: 1 }} />
               <span style={{ color: "var(--text-dim)", fontSize: 12.5 }}>{fmtRel(j.next_fire_at)}</span>
             </div>
@@ -367,13 +353,13 @@ function Dashboard({ go }) {
         <div className="card">
           <div className="card-pad" style={{ paddingBottom: 8, fontWeight: 650 }}>Recent failures</div>
           <hr className="sep" />
-          {recentFails.length === 0 && <div className="empty" style={{ padding: 24 }}>no recent failures 🎉</div>}
-          {recentFails.map(({ j, s }) => (
-            <div key={j.id} className="row" style={{ padding: "10px 18px", borderBottom: "1px solid var(--border)", cursor: "pointer" }} onClick={() => go("jobs")}>
-              <span style={{ fontWeight: 550 }}>{j.name}</span>
+          {s.recent_failures.length === 0 && <div className="empty" style={{ padding: 24 }}>no recent failures 🎉</div>}
+          {s.recent_failures.map((rf, i) => (
+            <div key={i} className="row" style={{ padding: "10px 18px", borderBottom: "1px solid var(--border)", cursor: "pointer" }} onClick={() => go("jobs")}>
+              <span style={{ fontWeight: 550 }}>{rf.name || "(deleted job)"}</span>
               <span className="spacer" style={{ flex: 1 }} />
               <span className="pill failed">failed</span>
-              <span style={{ color: "var(--text-faint)", fontSize: 12 }}>{fmtRel(s.last_failure_at)}</span>
+              <span style={{ color: "var(--text-faint)", fontSize: 12 }}>{fmtRel(rf.at)}</span>
             </div>
           ))}
         </div>
@@ -1073,6 +1059,66 @@ function Login({ onLoggedIn }) {
   );
 }
 
+/* ============ JIL import ============ */
+const JIL_SAMPLE = `/* Paste Autosys JIL. insert_job + delete_job supported. */
+insert_job: nightly_load   job_type: c
+command: /opt/etl/run.sh --full
+machine: localhost
+start_times: "02:00"
+n_retrys: 2
+alarm_if_fail: 1
+`;
+function JilImportPage() {
+  const toast = useToast();
+  const [text, setText] = useState(JIL_SAMPLE);
+  const [busy, setBusy] = useState(false);
+  const [results, setResults] = useState(null);
+  async function run() {
+    setBusy(true);
+    try {
+      const r = await api("POST", "/jil", { text });
+      setResults(r);
+      const ok = r.filter(x => x.ok).length;
+      toast(`${ok}/${r.length} block(s) applied`, ok === r.length ? undefined : "err");
+    } catch (e) { toast(e.message, "err"); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div className="grid" style={{ gap: 16 }}>
+      <div className="card card-pad">
+        <div className="row" style={{ marginBottom: 10 }}>
+          <span style={{ fontWeight: 650 }}>Import Autosys JIL</span>
+          <span style={{ color: "var(--text-faint)", fontSize: 12.5 }}>insert_job + delete_job</span>
+          <span className="spacer" style={{ flex: 1 }} />
+          <button className="btn btn-primary" disabled={busy} onClick={run}>{busy ? "Importing…" : "Import"}</button>
+        </div>
+        <textarea className="mono" style={{ width: "100%", height: 260, resize: "vertical", lineHeight: 1.5 }} value={text} onChange={e => setText(e.target.value)} spellCheck={false} />
+      </div>
+      {results && (
+        <div className="card">
+          <table>
+            <thead><tr><th>Action</th><th>Job</th><th>Result</th><th>Detail</th></tr></thead>
+            <tbody>
+              {results.length === 0 && <tr><td colSpan="4" className="empty">no blocks parsed</td></tr>}
+              {results.map((r, i) => (
+                <tr key={i}>
+                  <td><span className="tag">{r.action}</span></td>
+                  <td style={{ fontWeight: 550 }}>{r.name}</td>
+                  <td><span className={"pill " + (r.ok ? "success" : "failed")}>{r.ok ? "ok" : "error"}</span></td>
+                  <td style={{ color: "var(--text-dim)", fontSize: 12.5 }}>
+                    {r.message}
+                    {r.warnings && r.warnings.length > 0 && <div style={{ color: "var(--warning)" }}>{r.warnings.join("; ")}</div>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ============ App shell ============ */
 const NAV = [
   { sec: "Monitor" },
@@ -1083,12 +1129,13 @@ const NAV = [
   { sec: "Configure" },
   { id: "resources", label: "Resources", icon: "resources" },
   { id: "globals", label: "Globals", icon: "globals" },
+  { id: "jil", label: "Import JIL", icon: "edit" },
   { sec: "Admin", admin: true },
   { id: "users", label: "Users", icon: "users", admin: true },
   { id: "apikeys", label: "API keys", icon: "keys" },
   { id: "audit", label: "Audit log", icon: "audit", admin: true },
 ];
-const TITLES = { dashboard: "Dashboard", jobs: "Jobs", runs: "Run history", dag: "Workflow DAG", resources: "Virtual resources", globals: "Global variables", users: "Users", apikeys: "API keys", audit: "Audit log" };
+const TITLES = { dashboard: "Dashboard", jobs: "Jobs", runs: "Run history", dag: "Workflow DAG", resources: "Virtual resources", globals: "Global variables", jil: "Import JIL", users: "Users", apikeys: "API keys", audit: "Audit log" };
 
 function App() {
   const [me, setMe] = useState(undefined);
@@ -1107,7 +1154,7 @@ function App() {
   if (me === null) return <Login onLoggedIn={setMe} />;
 
   const isAdmin = me.role === "admin";
-  const page = { dashboard: <Dashboard go={setTab} />, jobs: <JobsPage />, runs: <RunsPage />, dag: <DagPage />, resources: <ResourcesPage />, globals: <GlobalsPage />, users: <UsersPage />, apikeys: <ApiKeysPage />, audit: <AuditPage /> }[tab];
+  const page = { dashboard: <Dashboard go={setTab} />, jobs: <JobsPage />, runs: <RunsPage />, dag: <DagPage />, resources: <ResourcesPage />, globals: <GlobalsPage />, jil: <JilImportPage />, users: <UsersPage />, apikeys: <ApiKeysPage />, audit: <AuditPage /> }[tab];
 
   return (
     <div className="app">

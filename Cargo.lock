@@ -2312,7 +2312,7 @@ dependencies = [
 
 [[package]]
 name = "rsched-agent"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2330,7 +2330,7 @@ dependencies = [
 
 [[package]]
 name = "rsched-alert"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2347,7 +2347,7 @@ dependencies = [
 
 [[package]]
 name = "rsched-api"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "axum 0.7.9",
@@ -2358,6 +2358,7 @@ dependencies = [
  "hmac",
  "rand 0.8.6",
  "rsched-core",
+ "rsched-jil",
  "rsched-scheduler",
  "rsched-store",
  "serde",
@@ -2374,7 +2375,7 @@ dependencies = [
 
 [[package]]
 name = "rsched-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2390,7 +2391,7 @@ dependencies = [
 
 [[package]]
 name = "rsched-conditions"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rsched-core",
  "serde",
@@ -2399,7 +2400,7 @@ dependencies = [
 
 [[package]]
 name = "rsched-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -2412,7 +2413,7 @@ dependencies = [
 
 [[package]]
 name = "rsched-jil"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "rsched-core",
@@ -2422,7 +2423,7 @@ dependencies = [
 
 [[package]]
 name = "rsched-scheduler"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2442,7 +2443,7 @@ dependencies = [
 
 [[package]]
 name = "rsched-store"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2459,7 +2460,7 @@ dependencies = [
 
 [[package]]
 name = "rsched-ui"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum 0.7.9",
  "mime_guess",
@@ -2578,7 +2579,7 @@ dependencies = [
 
 [[package]]
 name = "rusty-sched"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "axum 0.7.9",
