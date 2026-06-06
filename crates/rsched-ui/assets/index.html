@@ -4,53 +4,184 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>rusty-sched</title>
-<script src="https://cdn.tailwindcss.com"></script>
 <script>
-  // Tailwind dark mode via `class` strategy. Pre-set the class before the body
-  // paints so we never flash a light theme on dark-preferring users.
-  tailwind.config = { darkMode: 'class' };
+  // Apply saved theme before paint to avoid flash.
   (function () {
-    var saved = localStorage.getItem('rsched_theme');
-    var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-    if (saved === 'dark' || (!saved && prefersDark)) {
-      document.documentElement.classList.add('dark');
-    }
+    var t = localStorage.getItem('rsched_theme') || 'dark';
+    document.documentElement.setAttribute('data-theme', t);
   })();
 </script>
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/javascript/javascript.min.js"></script>
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
-  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .CodeMirror {
-    height: 420px;
-    font-size: 13px;
-    border-radius: 0.375rem;
-    border: 1px solid #334155;
-    background: #0f172a;
-    color: #e2e8f0;
-  }
-  .CodeMirror-gutters { background: #1e293b; border-right: 1px solid #334155; }
-  .CodeMirror-linenumber { color: #475569; }
-  .CodeMirror-cursor { border-left-color: #f97316; }
-  .cm-s-default .cm-string { color: #86efac; }
-  .cm-s-default .cm-number { color: #fb923c; }
-  .cm-s-default .cm-atom { color: #818cf8; }
-  .cm-s-default .cm-property { color: #7dd3fc; }
-  .cm-s-default .cm-punctuation { color: #94a3b8; }
+/* ---------- Theme tokens ---------- */
+:root[data-theme="light"] {
+  --bg:#f1f5f9; --surface:#ffffff; --surface-2:#f8fafc; --surface-3:#eef2f7;
+  --border:#e2e8f0; --border-strong:#cbd5e1;
+  --text:#0f172a; --text-dim:#64748b; --text-faint:#94a3b8;
+  --accent:#ea580c; --accent-2:#dc2626; --accent-fg:#ffffff; --accent-soft:#ffedd5;
+  --success:#16a34a; --danger:#dc2626; --warning:#d97706; --running:#2563eb; --muted:#64748b;
+  --shadow:0 1px 3px rgba(15,23,42,.08),0 1px 2px rgba(15,23,42,.04);
+  --code-bg:#0f172a; --code-fg:#e2e8f0;
+}
+:root[data-theme="dark"] {
+  --bg:#0b1120; --surface:#111827; --surface-2:#161f30; --surface-3:#1e293b;
+  --border:#1f2a3c; --border-strong:#334155;
+  --text:#e5edf7; --text-dim:#94a3b8; --text-faint:#64748b;
+  --accent:#f97316; --accent-2:#ef4444; --accent-fg:#ffffff; --accent-soft:#3a2415;
+  --success:#22c55e; --danger:#ef4444; --warning:#f59e0b; --running:#3b82f6; --muted:#94a3b8;
+  --shadow:0 1px 3px rgba(0,0,0,.4);
+  --code-bg:#06090f; --code-fg:#cbd5e1;
+}
+:root[data-theme="midnight"] {
+  --bg:#0a0a12; --surface:#13131f; --surface-2:#191926; --surface-3:#222234;
+  --border:#262636; --border-strong:#3a3a52;
+  --text:#e8e6f5; --text-dim:#9c98c0; --text-faint:#6b6890;
+  --accent:#a78bfa; --accent-2:#7c3aed; --accent-fg:#0a0a12; --accent-soft:#241b3d;
+  --success:#34d399; --danger:#fb7185; --warning:#fbbf24; --running:#60a5fa; --muted:#9c98c0;
+  --shadow:0 1px 3px rgba(0,0,0,.5);
+  --code-bg:#06060c; --code-fg:#cdcae8;
+}
+:root[data-theme="solarized"] {
+  --bg:#fdf6e3; --surface:#fffbef; --surface-2:#f5eed5; --surface-3:#eee8d5;
+  --border:#e6dfc4; --border-strong:#ccc4a8;
+  --text:#073642; --text-dim:#657b83; --text-faint:#93a1a1;
+  --accent:#268bd2; --accent-2:#2aa198; --accent-fg:#ffffff; --accent-soft:#dcebf5;
+  --success:#859900; --danger:#dc322f; --warning:#b58900; --running:#268bd2; --muted:#657b83;
+  --shadow:0 1px 3px rgba(7,54,66,.1);
+  --code-bg:#073642; --code-fg:#eee8d5;
+}
+* { box-sizing:border-box; }
+html,body { margin:0; padding:0; }
+body {
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  background:var(--bg); color:var(--text); font-size:14px; line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+.mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+button { font-family:inherit; cursor:pointer; }
+input,select,textarea {
+  font-family:inherit; font-size:13px; background:var(--surface-2); color:var(--text);
+  border:1px solid var(--border-strong); border-radius:8px; padding:8px 10px; outline:none;
+}
+input:focus,select:focus,textarea:focus { border-color:var(--accent); }
+::placeholder { color:var(--text-faint); }
+
+/* ---------- Layout ---------- */
+.app { display:flex; min-height:100vh; }
+.sidebar {
+  width:230px; flex-shrink:0; background:var(--surface); border-right:1px solid var(--border);
+  display:flex; flex-direction:column; position:sticky; top:0; height:100vh;
+}
+.brand { display:flex; align-items:center; gap:10px; padding:18px 18px 14px; }
+.brand .logo {
+  width:32px; height:32px; border-radius:9px; flex-shrink:0;
+  background:linear-gradient(135deg,var(--accent),var(--accent-2));
+  display:flex; align-items:center; justify-content:center; color:var(--accent-fg);
+  font-size:18px; box-shadow:var(--shadow);
+}
+.brand h1 { font-size:16px; font-weight:700; margin:0; letter-spacing:-.01em; }
+.brand .ver { font-size:11px; color:var(--text-faint); }
+.nav { flex:1; padding:8px; overflow-y:auto; }
+.nav-section { font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-faint); padding:14px 12px 6px; font-weight:600; }
+.nav-item {
+  display:flex; align-items:center; gap:11px; width:100%; text-align:left;
+  padding:9px 12px; border:none; background:none; color:var(--text-dim);
+  border-radius:9px; font-size:13.5px; font-weight:500; margin-bottom:2px;
+}
+.nav-item:hover { background:var(--surface-3); color:var(--text); }
+.nav-item.active { background:var(--accent-soft); color:var(--accent); font-weight:600; }
+.nav-item svg { width:17px; height:17px; flex-shrink:0; }
+.nav-item .badge { margin-left:auto; font-size:11px; background:var(--surface-3); color:var(--text-dim); padding:1px 7px; border-radius:999px; }
+.sidebar-foot { padding:12px; border-top:1px solid var(--border); }
+
+.main { flex:1; min-width:0; display:flex; flex-direction:column; }
+.topbar {
+  height:58px; flex-shrink:0; display:flex; align-items:center; gap:14px;
+  padding:0 24px; border-bottom:1px solid var(--border); background:var(--surface);
+  position:sticky; top:0; z-index:20;
+}
+.topbar .page-title { font-size:16px; font-weight:650; }
+.topbar .spacer { flex:1; }
+.content { padding:24px; max-width:1200px; width:100%; margin:0 auto; }
+
+/* ---------- Bits ---------- */
+.card { background:var(--surface); border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow); }
+.card-pad { padding:18px; }
+.row { display:flex; align-items:center; gap:10px; }
+.btn {
+  display:inline-flex; align-items:center; gap:7px; border:1px solid var(--border-strong);
+  background:var(--surface-2); color:var(--text); padding:8px 13px; border-radius:9px;
+  font-size:13px; font-weight:550; transition:.12s;
+}
+.btn:hover { border-color:var(--accent); color:var(--accent); }
+.btn-primary { background:var(--accent); border-color:var(--accent); color:var(--accent-fg); }
+.btn-primary:hover { filter:brightness(1.07); color:var(--accent-fg); }
+.btn-danger:hover { border-color:var(--danger); color:var(--danger); }
+.btn-sm { padding:5px 10px; font-size:12px; border-radius:7px; }
+.btn:disabled { opacity:.5; cursor:default; }
+.icon-btn { display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; border-radius:9px; border:1px solid var(--border-strong); background:var(--surface-2); color:var(--text-dim); }
+.icon-btn:hover { color:var(--accent); border-color:var(--accent); }
+.icon-btn svg { width:17px; height:17px; }
+
+.pill { display:inline-flex; align-items:center; gap:5px; font-size:11.5px; font-weight:600; padding:2px 9px; border-radius:999px; text-transform:capitalize; }
+.pill::before { content:""; width:6px; height:6px; border-radius:999px; background:currentColor; }
+.pill.success { color:var(--success); background:color-mix(in srgb,var(--success) 14%,transparent); }
+.pill.failed,.pill.lost,.pill.killed { color:var(--danger); background:color-mix(in srgb,var(--danger) 14%,transparent); }
+.pill.running { color:var(--running); background:color-mix(in srgb,var(--running) 14%,transparent); }
+.pill.queued,.pill.pending { color:var(--warning); background:color-mix(in srgb,var(--warning) 14%,transparent); }
+.pill.paused,.pill.skipped,.pill.unknown { color:var(--muted); background:color-mix(in srgb,var(--muted) 16%,transparent); }
+
+table { width:100%; border-collapse:collapse; font-size:13px; }
+thead th { text-align:left; font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-faint); font-weight:600; padding:10px 14px; border-bottom:1px solid var(--border); }
+tbody td { padding:11px 14px; border-bottom:1px solid var(--border); }
+tbody tr:last-child td { border-bottom:none; }
+tbody tr:hover { background:var(--surface-2); }
+
+.grid { display:grid; gap:16px; }
+.stat { display:flex; flex-direction:column; gap:6px; }
+.stat .label { font-size:11.5px; color:var(--text-dim); text-transform:uppercase; letter-spacing:.04em; font-weight:600; }
+.stat .value { font-size:28px; font-weight:700; letter-spacing:-.02em; }
+.stat .sub { font-size:12px; color:var(--text-faint); }
+
+.field { display:flex; flex-direction:column; gap:5px; }
+.field label { font-size:12px; color:var(--text-dim); font-weight:550; }
+.modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; z-index:50; padding:20px; }
+.modal { background:var(--surface); border:1px solid var(--border); border-radius:16px; box-shadow:0 20px 60px rgba(0,0,0,.4); width:100%; display:flex; flex-direction:column; max-height:90vh; }
+.modal-head { display:flex; align-items:center; justify-content:between; padding:18px 20px; border-bottom:1px solid var(--border); }
+.modal-body { padding:20px; overflow:auto; }
+.modal-foot { padding:16px 20px; border-top:1px solid var(--border); display:flex; justify-content:flex-end; gap:10px; }
+.alert-err { background:color-mix(in srgb,var(--danger) 12%,transparent); border:1px solid color-mix(in srgb,var(--danger) 35%,transparent); color:var(--danger); padding:9px 12px; border-radius:9px; font-size:13px; }
+.console { background:var(--code-bg); color:var(--code-fg); border-radius:10px; padding:12px; font-family:ui-monospace,Menlo,monospace; font-size:12.5px; overflow:auto; max-height:340px; line-height:1.55; }
+.dropdown { position:relative; }
+.menu { position:absolute; right:0; top:calc(100% + 6px); background:var(--surface); border:1px solid var(--border); border-radius:11px; box-shadow:var(--shadow); padding:6px; min-width:170px; z-index:40; }
+.menu button { display:flex; align-items:center; gap:9px; width:100%; text-align:left; border:none; background:none; color:var(--text); padding:8px 10px; border-radius:7px; font-size:13px; }
+.menu button:hover { background:var(--surface-3); }
+.menu .check { margin-left:auto; color:var(--accent); }
+.toast-wrap { position:fixed; bottom:20px; right:20px; display:flex; flex-direction:column; gap:8px; z-index:100; }
+.toast { background:var(--surface); border:1px solid var(--border); border-left:3px solid var(--accent); border-radius:9px; padding:11px 14px; box-shadow:0 8px 24px rgba(0,0,0,.25); font-size:13px; min-width:220px; }
+.toast.err { border-left-color:var(--danger); }
+.spark { display:flex; gap:2px; align-items:flex-end; height:18px; }
+.spark span { width:5px; border-radius:1px; }
+.empty { text-align:center; color:var(--text-faint); padding:40px 0; font-size:13.5px; }
+.tag { font-size:11px; padding:2px 8px; border-radius:6px; background:var(--surface-3); color:var(--text-dim); font-weight:600; }
+.progress { height:7px; background:var(--surface-3); border-radius:999px; overflow:hidden; flex:1; min-width:60px; }
+.progress > div { height:100%; background:var(--accent); }
+.login-wrap { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; }
+hr.sep { border:none; border-top:1px solid var(--border); margin:0; }
 </style>
 </head>
-<body class="bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 transition-colors">
+<body>
 <div id="root"></div>
 
 <script type="text/babel">
 const API = "/api/v1";
-const { useState, useEffect, useRef } = React;
+const { useState, useEffect, useRef, useCallback, createContext, useContext } = React;
 
+/* ============ api helper ============ */
 function api(method, path, body) {
   return fetch(API + path, {
     method,
@@ -63,1160 +194,957 @@ function api(method, path, body) {
   });
 }
 
-function Header() {
+/* ============ toasts ============ */
+const ToastCtx = createContext(() => {});
+function useToast() { return useContext(ToastCtx); }
+function ToastHost({ children }) {
+  const [items, setItems] = useState([]);
+  const push = useCallback((msg, kind) => {
+    const id = Math.random();
+    setItems(x => [...x, { id, msg, kind }]);
+    setTimeout(() => setItems(x => x.filter(i => i.id !== id)), 4000);
+  }, []);
   return (
-    <header className="bg-gradient-to-r from-orange-500 to-red-600 text-white px-6 py-4 shadow">
-      <div className="max-w-6xl mx-auto flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-2xl">⚙️</span>
-          <h1 className="text-xl font-bold">rusty-sched</h1>
-          <span className="text-orange-200 text-sm">job scheduler</span>
+    <ToastCtx.Provider value={push}>
+      {children}
+      <div className="toast-wrap">
+        {items.map(t => <div key={t.id} className={"toast " + (t.kind || "")}>{t.msg}</div>)}
+      </div>
+    </ToastCtx.Provider>
+  );
+}
+
+/* ============ icons ============ */
+const ICONS = {
+  dashboard: "M3 3h7v7H3zM14 3h7v4h-7zM14 10h7v11h-7zM3 14h7v7H3z",
+  jobs: "M4 6h16M4 12h16M4 18h10",
+  runs: "M5 3l14 9-14 9z",
+  dag: "M6 3a3 3 0 100 6 3 3 0 000-6zM18 15a3 3 0 100 6 3 3 0 000-6zM6 21a3 3 0 100-6 3 3 0 000 6zM9 6h6a3 3 0 013 3v3",
+  resources: "M3 7l9-4 9 4-9 4zM3 7v10l9 4 9-4V7M3 12l9 4 9-4",
+  globals: "M12 3a9 9 0 100 18 9 9 0 000-18zM3 12h18M12 3c2.5 2.5 2.5 15 0 18M12 3c-2.5 2.5-2.5 15 0 18",
+  users: "M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM22 21v-2a4 4 0 00-3-3.87",
+  keys: "M21 2l-2 2m-7.6 7.6a5 5 0 11-7-7 5 5 0 017 7zm0 0L15 15m0 0l3 3m-3-3l3-3",
+  audit: "M9 11l3 3 8-8M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11",
+  theme: "M12 3a9 9 0 109 9c0-.46-.04-.92-.1-1.36a5.39 5.39 0 01-4.4 2.26 5.4 5.4 0 01-3.4-9.6c-.36-.2-.74-.3-1.1-.3z",
+  logout: "M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9",
+  refresh: "M23 4v6h-6M1 20v-6h6M3.5 9a9 9 0 0114.8-3.4L23 10M1 14l4.7 4.4A9 9 0 0020.5 15",
+  plus: "M12 5v14M5 12h14",
+  play: "M5 3l14 9-14 9z",
+  pause: "M6 4h4v16H6zM14 4h4v16h-4z",
+  trash: "M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6",
+  edit: "M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4z",
+  close: "M18 6L6 18M6 6l12 12",
+  check: "M20 6L9 17l-5-5",
+};
+function Icon({ name, ...p }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <path d={ICONS[name] || ""} />
+    </svg>
+  );
+}
+
+/* ============ themes ============ */
+const THEMES = [
+  { id: "light", name: "Light" },
+  { id: "dark", name: "Dark" },
+  { id: "midnight", name: "Midnight" },
+  { id: "solarized", name: "Solarized" },
+];
+function useTheme() {
+  const [theme, setTheme] = useState(() => document.documentElement.getAttribute("data-theme") || "dark");
+  const apply = useCallback(t => {
+    document.documentElement.setAttribute("data-theme", t);
+    localStorage.setItem("rsched_theme", t);
+    setTheme(t);
+  }, []);
+  return [theme, apply];
+}
+function ThemePicker({ theme, setTheme }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    function h(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+  return (
+    <div className="dropdown" ref={ref}>
+      <button className="icon-btn" title="Theme" onClick={() => setOpen(o => !o)}><Icon name="theme" /></button>
+      {open && (
+        <div className="menu">
+          {THEMES.map(t => (
+            <button key={t.id} onClick={() => { setTheme(t.id); setOpen(false); }}>
+              {t.name}{theme === t.id && <span className="check"><Icon name="check" width="15" height="15" /></span>}
+            </button>
+          ))}
         </div>
-        <a href="https://github.com/jdp5949/rusty-sched" className="text-sm hover:underline">★ GitHub</a>
-      </div>
-    </header>
+      )}
+    </div>
   );
 }
 
-function NewJobForm({ onCreated }) {
-  const [name, setName] = useState("");
-  const [cron, setCron] = useState("*/5 * * * *");
-  const [cmd, setCmd] = useState("echo hello");
-  const [err, setErr] = useState(null);
-  const [busy, setBusy] = useState(false);
-
-  async function submit(e) {
-    e.preventDefault();
-    setErr(null);
-    setBusy(true);
-    try {
-      await api("POST", "/jobs", {
-        name,
-        trigger: { kind: "cron", expr: cron },
-        cmd,
-      });
-      setName("");
-      onCreated();
-    } catch (e) {
-      setErr(e.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
+/* ============ shared formatters ============ */
+function fmtTime(t) { return t ? new Date(t).toLocaleString() : "—"; }
+function fmtRel(t) {
+  if (!t) return "—";
+  const d = (Date.now() - new Date(t).getTime()) / 1000;
+  const ab = Math.abs(d), fut = d < 0;
+  const u = ab < 60 ? [ab, "s"] : ab < 3600 ? [ab/60, "m"] : ab < 86400 ? [ab/3600, "h"] : [ab/86400, "d"];
+  const s = `${Math.round(u[0])}${u[1]}`;
+  return fut ? `in ${s}` : `${s} ago`;
+}
+function outcomeColor(o) {
+  return o === "success" ? "var(--success)" : o === "failure" ? "var(--danger)"
+    : o === "running" ? "var(--running)" : "var(--muted)";
+}
+function Sparkline({ outcomes }) {
+  if (!outcomes || !outcomes.length) return <span style={{color:"var(--text-faint)",fontSize:12}}>no runs</span>;
   return (
-    <form onSubmit={submit} className="bg-white border border-slate-200 rounded-xl p-5 mb-6 shadow-sm dark:bg-slate-900 dark:border-slate-800">
-      <h2 className="font-semibold mb-3">Create job</h2>
-      <div className="grid md:grid-cols-3 gap-3">
-        <input className="border border-slate-300 rounded px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-700" placeholder="name" value={name} onChange={e=>setName(e.target.value)} required />
-        <input className="border border-slate-300 rounded px-3 py-2 text-sm mono dark:bg-slate-800 dark:border-slate-700" placeholder="cron expression" value={cron} onChange={e=>setCron(e.target.value)} required />
-        <input className="border border-slate-300 rounded px-3 py-2 text-sm mono dark:bg-slate-800 dark:border-slate-700" placeholder="command" value={cmd} onChange={e=>setCmd(e.target.value)} required />
-      </div>
-      <button disabled={busy} className="mt-3 bg-orange-600 text-white text-sm px-4 py-2 rounded hover:bg-orange-700 disabled:opacity-50">
-        {busy ? "creating…" : "Create"}
-      </button>
-      {err && <div className="mt-2 text-red-600 text-sm">{err}</div>}
-    </form>
+    <div className="spark">
+      {outcomes.map((o, i) => <span key={i} title={o} style={{ height: "100%", background: outcomeColor(o) }} />)}
+    </div>
   );
 }
 
-function stateColor(s) {
-  if (s === 'success') return 'text-green-600';
-  if (s === 'failed' || s === 'lost') return 'text-red-600';
-  if (s === 'running') return 'text-blue-600';
-  if (s === 'killed') return 'text-orange-600';
-  return 'text-slate-600';
+/* ============ Dashboard ============ */
+function Dashboard({ go }) {
+  const [jobs, setJobs] = useState(null);
+  const [stats, setStats] = useState({});
+  async function load() {
+    const js = await api("GET", "/jobs");
+    setJobs(js);
+    const entries = await Promise.all(js.map(async j => {
+      try { return [j.id, await api("GET", `/stats/jobs/${j.id}`)]; } catch { return [j.id, null]; }
+    }));
+    setStats(Object.fromEntries(entries));
+  }
+  useEffect(() => { load(); const id = setInterval(load, 8000); return () => clearInterval(id); }, []);
+  if (!jobs) return <div className="empty">loading…</div>;
+
+  const paused = jobs.filter(j => j.paused).length;
+  const allOut = Object.values(stats).flatMap(s => s ? s.recent_outcomes || [] : []);
+  const running = allOut.filter(o => o === "running").length;
+  const succ = allOut.filter(o => o === "success").length;
+  const fail = allOut.filter(o => o === "failure").length;
+  const rate = (succ + fail) ? Math.round(succ / (succ + fail) * 100) : 100;
+  const upcoming = jobs.filter(j => j.next_fire_at && !j.paused)
+    .sort((a, b) => new Date(a.next_fire_at) - new Date(b.next_fire_at)).slice(0, 6);
+  const recentFails = jobs.map(j => ({ j, s: stats[j.id] }))
+    .filter(x => x.s && x.s.last_failure_at)
+    .sort((a, b) => new Date(b.s.last_failure_at) - new Date(a.s.last_failure_at)).slice(0, 6);
+
+  const Stat = ({ label, value, sub, color }) => (
+    <div className="card card-pad stat">
+      <span className="label">{label}</span>
+      <span className="value" style={color ? { color } : null}>{value}</span>
+      {sub && <span className="sub">{sub}</span>}
+    </div>
+  );
+  return (
+    <div className="grid" style={{ gap: 18 }}>
+      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))" }}>
+        <Stat label="Jobs" value={jobs.length} sub={`${paused} paused`} />
+        <Stat label="Running now" value={running} color="var(--running)" />
+        <Stat label="Success rate" value={rate + "%"} sub="recent window" color={rate >= 90 ? "var(--success)" : rate >= 70 ? "var(--warning)" : "var(--danger)"} />
+        <Stat label="Failures" value={fail} color={fail ? "var(--danger)" : null} sub="recent window" />
+      </div>
+      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(340px,1fr))" }}>
+        <div className="card">
+          <div className="card-pad" style={{ paddingBottom: 8, fontWeight: 650 }}>Upcoming runs</div>
+          <hr className="sep" />
+          {upcoming.length === 0 && <div className="empty" style={{ padding: 24 }}>nothing scheduled</div>}
+          {upcoming.map(j => (
+            <div key={j.id} className="row" style={{ padding: "10px 18px", borderBottom: "1px solid var(--border)", cursor: "pointer" }} onClick={() => go("jobs")}>
+              <span style={{ fontWeight: 550 }}>{j.name}</span>
+              <span className="tag mono">{j.trigger.kind}</span>
+              <span className="spacer" style={{ flex: 1 }} />
+              <span style={{ color: "var(--text-dim)", fontSize: 12.5 }}>{fmtRel(j.next_fire_at)}</span>
+            </div>
+          ))}
+        </div>
+        <div className="card">
+          <div className="card-pad" style={{ paddingBottom: 8, fontWeight: 650 }}>Recent failures</div>
+          <hr className="sep" />
+          {recentFails.length === 0 && <div className="empty" style={{ padding: 24 }}>no recent failures 🎉</div>}
+          {recentFails.map(({ j, s }) => (
+            <div key={j.id} className="row" style={{ padding: "10px 18px", borderBottom: "1px solid var(--border)", cursor: "pointer" }} onClick={() => go("jobs")}>
+              <span style={{ fontWeight: 550 }}>{j.name}</span>
+              <span className="spacer" style={{ flex: 1 }} />
+              <span className="pill failed">failed</span>
+              <span style={{ color: "var(--text-faint)", fontSize: 12 }}>{fmtRel(s.last_failure_at)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
 
-function RunDetail({ runId, onClose }) {
+/* ============ Run detail (live logs) ============ */
+function RunDetail({ runId }) {
   const [logs, setLogs] = useState([]);
   const [run, setRun] = useState(null);
   const [live, setLive] = useState(false);
-  const seqRef = useRef(0);
-  const wsRef = useRef(null);
-
-  async function fetchRunMeta() {
-    try {
-      const r = await api("GET", `/runs/${runId}`);
-      setRun(r);
-    } catch (_) {}
-  }
-
+  async function meta() { try { setRun(await api("GET", `/runs/${runId}`)); } catch {} }
   useEffect(() => {
-    setLogs([]);
-    seqRef.current = 0;
-    fetchRunMeta();
-
-    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${proto}//${window.location.host}/api/v1/runs/${runId}/logs/ws?from_seq=0`;
-    const ws = new WebSocket(url);
-    wsRef.current = ws;
-
+    setLogs([]); meta();
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${proto}//${location.host}/api/v1/runs/${runId}/logs/ws?from_seq=0`);
     ws.onopen = () => setLive(true);
-    ws.onclose = () => { setLive(false); fetchRunMeta(); };
+    ws.onclose = () => { setLive(false); meta(); };
     ws.onerror = () => setLive(false);
-    ws.onmessage = (ev) => {
+    ws.onmessage = ev => {
       try {
-        const msg = JSON.parse(ev.data);
-        if (msg.type === 'log') {
-          seqRef.current = msg.seq + 1;
-          setLogs(prev => [...prev, msg]);
-        } else if (msg.type === 'end') {
-          setLive(false);
-          fetchRunMeta();
-        }
-      } catch (_) {}
+        const m = JSON.parse(ev.data);
+        if (m.type === "log") setLogs(p => [...p, m]);
+        else if (m.type === "end") { setLive(false); meta(); }
+      } catch {}
     };
-
-    // Refresh run metadata periodically so state badge updates.
-    const metaTick = setInterval(fetchRunMeta, 4000);
-    return () => {
-      clearInterval(metaTick);
-      try { ws.close(); } catch (_) {}
-    };
+    const t = setInterval(meta, 4000);
+    return () => { clearInterval(t); try { ws.close(); } catch {} };
   }, [runId]);
-
   return (
-    <div className="mt-3 border-t border-slate-200 pt-3">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-semibold text-slate-600">
-          Run detail: <span className="mono">{runId}</span>
-          {live && <span className="ml-2 inline-flex items-center text-emerald-600">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 mr-1 animate-pulse"></span>live
-          </span>}
-        </span>
-        <button onClick={onClose} className="text-xs text-slate-400 hover:text-slate-700">hide</button>
-      </div>
+    <div style={{ marginTop: 12 }}>
       {run && (
-        <div className="text-xs text-slate-500 flex gap-4 mb-2 flex-wrap">
-          <span className={stateColor(run.state)}>{run.state}</span>
+        <div className="row" style={{ flexWrap: "wrap", gap: 14, fontSize: 12.5, color: "var(--text-dim)", marginBottom: 8 }}>
+          <span className={"pill " + run.state}>{run.state}</span>
+          {live && <span className="pill running">live</span>}
           <span>attempt {run.attempt}</span>
           {run.exit_code != null && <span>exit {run.exit_code}</span>}
-          {run.log_bytes > 0 && <span>{(run.log_bytes/1024).toFixed(1)} KB log</span>}
-          {run.log_truncated && <span className="text-amber-600">TRUNCATED</span>}
-          {run.peak_rss_bytes && <span title="peak resident set size">RSS {(run.peak_rss_bytes/1024/1024).toFixed(1)} MB</span>}
-          {(run.cpu_user_secs != null || run.cpu_sys_secs != null) && (
-            <span title="cumulative user + sys CPU seconds">
-              CPU {((run.cpu_user_secs||0)+(run.cpu_sys_secs||0)).toFixed(2)}s
-            </span>
-          )}
+          {run.peak_rss_bytes ? <span>RSS {(run.peak_rss_bytes/1048576).toFixed(1)} MB</span> : null}
+          {(run.cpu_user_secs != null || run.cpu_sys_secs != null) && <span>CPU {((run.cpu_user_secs||0)+(run.cpu_sys_secs||0)).toFixed(2)}s</span>}
+          {run.log_truncated && <span style={{ color: "var(--warning)" }}>truncated</span>}
         </div>
       )}
-      <div className="bg-black rounded p-3 font-mono text-xs overflow-auto max-h-64">
-        {logs.length === 0 && <span className="text-slate-500">no output yet</span>}
-        {logs.map(l => (
-          <div key={l.seq} className={l.stream === 'stdout' ? 'text-green-300' : 'text-red-400'}>
-            {l.chunk}
-          </div>
-        ))}
+      <div className="console">
+        {logs.length === 0 && <span style={{ color: "var(--text-faint)" }}>no output yet…</span>}
+        {logs.map((l, i) => <div key={i} style={{ color: l.stream === "stderr" ? "var(--danger)" : "var(--code-fg)" }}>{l.chunk}</div>)}
       </div>
     </div>
   );
 }
 
-function outcomeColor(o) {
-  if (o === 'success') return '#22c55e';
-  if (o === 'failure') return '#ef4444';
-  if (o === 'running') return '#f59e0b';
-  return '#94a3b8';
-}
-
-function Sparkline({ outcomes }) {
-  if (!outcomes || outcomes.length === 0) return null;
-  return (
-    <div style={{ display: 'flex', gap: '2px', alignItems: 'center' }}>
-      {outcomes.map((o, i) => (
-        <span key={i} title={o} style={{
-          display: 'inline-block',
-          width: '5px',
-          height: '10px',
-          borderRadius: '1px',
-          backgroundColor: outcomeColor(o),
-        }} />
-      ))}
-    </div>
-  );
-}
-
-function JobRow({ job, onChange }) {
-  const [runs, setRuns] = useState(null);
-  const [expandedRun, setExpandedRun] = useState(null);
-  const [editing, setEditing] = useState(false);
+/* ============ Job card ============ */
+function JobCard({ job, onChange }) {
+  const toast = useToast();
   const [stats, setStats] = useState(null);
-
+  const [runs, setRuns] = useState(null);
+  const [openRun, setOpenRun] = useState(null);
+  const [editing, setEditing] = useState(false);
   useEffect(() => {
-    let cancelled = false;
-    async function fetchStats() {
-      try {
-        const s = await api("GET", `/stats/jobs/${job.id}`);
-        if (!cancelled) setStats(s);
-      } catch (_) {}
-    }
-    fetchStats();
-    const id = setInterval(fetchStats, 10000);
-    return () => { cancelled = true; clearInterval(id); };
+    let on = true;
+    const f = async () => { try { const s = await api("GET", `/stats/jobs/${job.id}`); if (on) setStats(s); } catch {} };
+    f(); const id = setInterval(f, 10000); return () => { on = false; clearInterval(id); };
   }, [job.id]);
-
-  async function act(path) {
-    await api("POST", `/jobs/${job.id}/${path}`);
-    onChange();
+  async function act(path, label) {
+    try { await api("POST", `/jobs/${job.id}/${path}`); toast(`${job.name}: ${label}`); onChange(); }
+    catch (e) { toast(e.message, "err"); }
   }
-  async function loadRuns() {
-    const r = await api("GET", `/jobs/${job.id}/runs`);
-    setRuns(r);
+  async function del() {
+    if (!confirm(`Delete job "${job.name}"? This cannot be undone.`)) return;
+    try { await api("DELETE", `/jobs/${job.id}`); toast(`deleted ${job.name}`); onChange(); }
+    catch (e) { toast(e.message, "err"); }
+  }
+  async function toggleRuns() {
+    if (runs) { setRuns(null); return; }
+    try { setRuns(await api("GET", `/jobs/${job.id}/runs`)); } catch (e) { toast(e.message, "err"); }
   }
   return (
-    <>
-      {editing && (
-        <JobEditModal
-          job={job}
-          onClose={() => setEditing(false)}
-          onSaved={onChange}
-        />
-      )}
-    <div className="bg-white border border-slate-200 rounded-xl p-4 mb-3 shadow-sm dark:bg-slate-900 dark:border-slate-800">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="font-semibold">{job.name} {job.paused && <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded ml-2">paused</span>}</div>
-          <div className="text-xs text-slate-500 mono">{job.id}</div>
-          <div className="text-sm mt-1 mono text-slate-700">{job.cmd}</div>
+    <div className="card card-pad" style={{ marginBottom: 12 }}>
+      {editing && <JobEditModal job={job} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); onChange(); }} />}
+      <div className="row" style={{ alignItems: "flex-start" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="row" style={{ gap: 8 }}>
+            <span style={{ fontWeight: 650, fontSize: 15 }}>{job.name}</span>
+            {job.paused && <span className="pill paused">paused</span>}
+            {job.box_id && <span className="tag mono">box</span>}
+          </div>
+          <div className="mono" style={{ fontSize: 12.5, color: "var(--text-dim)", marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{job.cmd}</div>
+          <div className="row" style={{ gap: 16, marginTop: 8, fontSize: 12, color: "var(--text-faint)", flexWrap: "wrap" }}>
+            <span>trigger <b className="mono" style={{ color: "var(--text-dim)" }}>{job.trigger.kind}{job.trigger.expr ? " " + job.trigger.expr : ""}</b></span>
+            {job.next_fire_at && <span>next <b style={{ color: "var(--text-dim)" }}>{fmtRel(job.next_fire_at)}</b></span>}
+            <span>timeout {job.timeout_secs || "∞"}s</span>
+            <span>retry {job.retry ? job.retry.max_attempts : 1}</span>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <button onClick={() => act("trigger")} className="text-xs bg-orange-100 text-orange-700 px-3 py-1 rounded hover:bg-orange-200">Trigger</button>
+        <div className="row" style={{ gap: 6 }}>
+          <button className="btn btn-sm" onClick={() => act("trigger", "triggered")}><Icon name="play" width="13" height="13" />Run</button>
           {job.paused
-            ? <button onClick={() => act("resume")} className="text-xs bg-green-100 text-green-700 px-3 py-1 rounded hover:bg-green-200">Resume</button>
-            : <button onClick={() => act("pause")} className="text-xs bg-slate-100 text-slate-700 px-3 py-1 rounded hover:bg-slate-200">Pause</button>}
-          <button onClick={() => setEditing(true)} className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded hover:bg-blue-200">Edit</button>
-          <button onClick={loadRuns} className="text-xs border border-slate-300 px-3 py-1 rounded hover:bg-slate-50">Runs</button>
+            ? <button className="btn btn-sm" onClick={() => act("resume", "resumed")}><Icon name="play" width="13" height="13" />Resume</button>
+            : <button className="btn btn-sm" onClick={() => act("pause", "paused")}><Icon name="pause" width="13" height="13" />Pause</button>}
+          <button className="icon-btn" title="Edit" onClick={() => setEditing(true)}><Icon name="edit" /></button>
+          <button className="icon-btn btn-danger" title="Delete" onClick={del}><Icon name="trash" /></button>
         </div>
-      </div>
-      <div className="mt-2 text-xs text-slate-500 flex gap-4">
-        <span>trigger: <span className="mono">{job.trigger.kind}</span></span>
-        {job.next_fire_at && <span>next: <span className="mono">{new Date(job.next_fire_at).toLocaleString()}</span></span>}
-        <span>timeout: <span className="mono">{job.timeout_secs || 'inf'}s</span></span>
-        <span>retry: <span className="mono">{job.retry.max_attempts}</span></span>
       </div>
       {stats && (
-        <div className="mt-2 flex items-center gap-4 text-xs text-slate-500">
-          <span className="font-medium text-slate-700">
-            {Math.round(stats.success_rate_24h * 100)}% <span className="font-normal text-slate-400">(24h)</span>
-          </span>
+        <div className="row" style={{ gap: 18, marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border)", fontSize: 12.5, color: "var(--text-dim)" }}>
           <Sparkline outcomes={stats.recent_outcomes} />
-          <span className="text-slate-400">
-            p50: {stats.p50_duration_secs.toFixed(1)}s&nbsp;&nbsp;p99: {stats.p99_duration_secs.toFixed(1)}s
-          </span>
-          {stats.last_failure_at && (
-            <span className="text-red-400">last fail: {new Date(stats.last_failure_at).toLocaleString()}</span>
-          )}
+          <span><b style={{ color: "var(--text)" }}>{Math.round(stats.success_rate_24h * 100)}%</b> 24h</span>
+          <span>p50 {stats.p50_duration_secs.toFixed(1)}s</span>
+          <span>p99 {stats.p99_duration_secs.toFixed(1)}s</span>
+          <span className="spacer" style={{ flex: 1 }} />
+          <button className="btn btn-sm" onClick={toggleRuns}>{runs ? "Hide runs" : "Runs"}</button>
         </div>
       )}
       {runs && (
-        <div className="mt-3 border-t border-slate-100 pt-2">
-          <div className="text-xs font-semibold text-slate-600 mb-2">Recent runs ({runs.length})</div>
-          {runs.length === 0 && <div className="text-xs text-slate-400">none</div>}
+        <div style={{ marginTop: 12 }}>
+          {runs.length === 0 && <div className="empty" style={{ padding: 16 }}>no runs yet</div>}
           {runs.map(r => (
-            <div key={r.id} className="text-xs flex gap-3 py-1 mono items-center">
-              <span className={stateColor(r.state)}>{r.state}</span>
-              <span className="text-slate-500">attempt {r.attempt}</span>
-              <span className="text-slate-400">{new Date(r.queued_at).toLocaleString()}</span>
-              <button
-                onClick={() => setExpandedRun(expandedRun === r.id ? null : r.id)}
-                className="text-xs border border-slate-300 px-2 py-0.5 rounded hover:bg-slate-50 ml-auto"
-              >
-                {expandedRun === r.id ? 'Hide' : 'View'}
-              </button>
+            <div key={r.id}>
+              <div className="row" style={{ gap: 12, padding: "7px 0", borderBottom: "1px solid var(--border)", fontSize: 12.5 }}>
+                <span className={"pill " + r.state}>{r.state}</span>
+                <span className="mono" style={{ color: "var(--text-faint)" }}>#{r.attempt}</span>
+                <span style={{ color: "var(--text-dim)" }}>{fmtTime(r.queued_at)}</span>
+                <span className="spacer" style={{ flex: 1 }} />
+                <button className="btn btn-sm" onClick={() => setOpenRun(openRun === r.id ? null : r.id)}>{openRun === r.id ? "Hide log" : "Log"}</button>
+              </div>
+              {openRun === r.id && <RunDetail runId={r.id} />}
             </div>
           ))}
         </div>
       )}
-      {expandedRun && <RunDetail runId={expandedRun} onClose={() => setExpandedRun(null)} />}
-    </div>
-    </>
-  );
-}
-
-function JobEditModal({ job, onClose, onSaved }) {
-  const editorRef = useRef(null);
-  const cmRef = useRef(null);
-  const [saveErr, setSaveErr] = useState(null);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!editorRef.current || cmRef.current) return;
-    cmRef.current = CodeMirror(editorRef.current, {
-      value: JSON.stringify(job, null, 2),
-      mode: { name: "javascript", json: true },
-      lineNumbers: true,
-      tabSize: 2,
-      indentWithTabs: false,
-      lineWrapping: false,
-    });
-  }, []);
-
-  async function save() {
-    setSaveErr(null);
-    const raw = cmRef.current ? cmRef.current.getValue() : "{}";
-    let parsed;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (e) {
-      setSaveErr("Invalid JSON: " + e.message);
-      return;
-    }
-    setBusy(true);
-    try {
-      await api("PUT", `/jobs/${job.id}`, parsed);
-      onSaved();
-      onClose();
-    } catch (e) {
-      setSaveErr(e.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="bg-slate-900 rounded-xl shadow-2xl w-full max-w-2xl flex flex-col" style={{maxHeight:"90vh"}}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
-          <h2 className="text-white font-semibold text-base">Edit Job: <span className="text-orange-400">{job.name}</span></h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
-        </div>
-        <div className="px-5 py-4 flex-1 overflow-auto">
-          <div ref={editorRef} className="rounded overflow-hidden" />
-          {saveErr && (
-            <div className="mt-3 bg-red-900/40 border border-red-700 text-red-300 text-sm px-3 py-2 rounded">
-              {saveErr}
-            </div>
-          )}
-        </div>
-        <div className="flex justify-end gap-3 px-5 py-4 border-t border-slate-700">
-          <button
-            onClick={onClose}
-            className="text-sm text-slate-300 px-4 py-2 rounded border border-slate-600 hover:bg-slate-800"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={save}
-            disabled={busy}
-            className="text-sm bg-orange-600 text-white px-4 py-2 rounded hover:bg-orange-700 disabled:opacity-50"
-          >
-            {busy ? "Saving…" : "Save"}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
 
-function Login({ onLoggedIn }) {
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("");
-  const [err, setErr] = useState(null);
-  const [busy, setBusy] = useState(false);
+/* ============ Job builder (GUI → validated JSON) ============ */
+const SHELLS = ["auto", "sh", "bash", "cmd", "powershell", "none", "plugin"];
+const TRIGGER_KINDS = ["cron", "interval", "one_shot", "manual", "file", "webhook", "condition"];
+const FILE_EVENTS = ["any", "create", "modify", "delete"];
 
-  async function submit(e) {
-    e.preventDefault();
-    setErr(null);
-    setBusy(true);
-    try {
-      const resp = await fetch(API + "/auth/login", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({ username, password }),
-      });
-      if (!resp.ok) {
-        setErr("invalid credentials");
-        setBusy(false);
-        return;
-      }
-      const me = await resp.json();
-      onLoggedIn(me);
-    } catch (e) {
-      setErr(e.message);
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-950">
-      <form onSubmit={submit} className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm w-full max-w-sm dark:bg-slate-900 dark:border-slate-800">
-        <div className="flex items-center gap-2 mb-4">
-          <span className="text-2xl">⚙️</span>
-          <h1 className="text-xl font-bold">rusty-sched</h1>
-        </div>
-        <label className="block text-xs text-slate-600 mb-1">Username</label>
-        <input className="w-full border border-slate-300 rounded px-3 py-2 text-sm mb-3" value={username} onChange={e=>setUsername(e.target.value)} required />
-        <label className="block text-xs text-slate-600 mb-1">Password</label>
-        <input type="password" className="w-full border border-slate-300 rounded px-3 py-2 text-sm mb-4" value={password} onChange={e=>setPassword(e.target.value)} required />
-        <button disabled={busy} className="w-full bg-orange-600 text-white text-sm px-4 py-2 rounded hover:bg-orange-700 disabled:opacity-50">
-          {busy ? "signing in…" : "Sign in"}
-        </button>
-        {err && <div className="mt-3 text-red-600 text-sm">{err}</div>}
-        <p className="mt-4 text-xs text-slate-500">
-          First run? Default user is <span className="mono">admin</span>. Password from
-          <span className="mono"> RSCHED_ADMIN_PASSWORD</span> env var or auto-generated (check server logs).
-        </p>
-      </form>
-    </div>
-  );
+function blankBuilder() {
+  return {
+    name: "", cmd: "echo hello", shell: "auto", cwd: "",
+    triggerKind: "cron",
+    cron: { expr: "*/5 * * * *", timezone: "" },
+    interval: { every: 300 },
+    oneshot: { at: "" },
+    file: { path: "", event: "any" },
+    webhook: { slug: "", secret: "" },
+    condition: { expr: "" },
+    args: [], env: [],
+    timeout_secs: 0, sla_secs: 0,
+    retry: { max_attempts: 1, backoffKind: "none", delay_secs: 30, base_secs: 10, max_secs: 300 },
+    misfire: "fire_once",
+  };
 }
 
-function ThemeToggle() {
-  const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'));
-  function toggle() {
-    const next = !dark;
-    setDark(next);
-    if (next) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('rsched_theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('rsched_theme', 'light');
-    }
+// Pure: builder state -> job request object (matches POST /jobs).
+function buildJob(f) {
+  let trigger;
+  switch (f.triggerKind) {
+    case "cron": trigger = { kind: "cron", expr: f.cron.expr, ...(f.cron.timezone ? { timezone: f.cron.timezone } : {}) }; break;
+    case "interval": trigger = { kind: "interval", every: Number(f.interval.every) || 0, start_at: null }; break;
+    case "one_shot": trigger = { kind: "one_shot", at: f.oneshot.at ? new Date(f.oneshot.at).toISOString() : "" }; break;
+    case "file": trigger = { kind: "file", path: f.file.path, event: f.file.event }; break;
+    case "webhook": trigger = { kind: "webhook", slug: f.webhook.slug, secret: f.webhook.secret }; break;
+    case "condition": trigger = { kind: "condition", expr: f.condition.expr }; break;
+    default: trigger = { kind: "manual" };
   }
-  return (
-    <button onClick={toggle} title="toggle theme" className="text-orange-100 hover:text-white">
-      {dark ? '☀' : '☾'}
-    </button>
-  );
+  let backoff;
+  if (f.retry.backoffKind === "fixed") backoff = { kind: "fixed", delay_secs: Number(f.retry.delay_secs) || 0 };
+  else if (f.retry.backoffKind === "exponential") backoff = { kind: "exponential", base_secs: Number(f.retry.base_secs) || 0, max_secs: Number(f.retry.max_secs) || 0 };
+  else backoff = { kind: "none" };
+  const env = {};
+  f.env.forEach(({ k, v }) => { if (k) env[k] = v; });
+  return {
+    name: f.name, trigger, cmd: f.cmd,
+    args: f.args.filter(a => a !== ""),
+    env, cwd: f.cwd || null, shell: f.shell,
+    timeout_secs: Number(f.timeout_secs) || 0,
+    sla_secs: Number(f.sla_secs) || 0,
+    retry: { max_attempts: Number(f.retry.max_attempts) || 1, backoff },
+    misfire: f.misfire,
+  };
 }
 
-function HeaderWithUser({ me, onLogout, tab, setTab }) {
-  const tabs = [
-    { id: 'jobs', label: 'Jobs' },
-    { id: 'dag', label: 'DAG' },
-    { id: 'resources', label: 'Resources' },
-    { id: 'globals', label: 'Globals' },
-    { id: 'apikeys', label: 'API keys' },
-  ];
-  if (me.role === 'admin') {
-    tabs.push({ id: 'users', label: 'Users' });
-    tabs.push({ id: 'audit', label: 'Audit' });
+// Pure: returns { field: message } for any invalid input.
+function validateBuilder(f) {
+  const e = {};
+  if (!f.name.trim()) e.name = "name required";
+  else if (!/^[\w.\-:]+$/.test(f.name)) e.name = "letters, digits, . _ - : only";
+  if (!f.cmd.trim()) e.cmd = "command required";
+  if (f.triggerKind === "cron") {
+    const parts = f.cron.expr.trim().split(/\s+/);
+    if (!f.cron.expr.trim()) e.trigger = "cron expression required";
+    else if (parts.length !== 5 && parts.length !== 6) e.trigger = "cron needs 5 or 6 fields";
+  } else if (f.triggerKind === "interval") {
+    if (!(Number(f.interval.every) > 0)) e.trigger = "interval must be > 0 seconds";
+  } else if (f.triggerKind === "one_shot") {
+    if (!f.oneshot.at) e.trigger = "pick a date/time";
+  } else if (f.triggerKind === "file") {
+    if (!f.file.path.trim()) e.trigger = "file path required";
+  } else if (f.triggerKind === "webhook") {
+    if (f.webhook.slug.length < 8) e.trigger = "slug must be ≥ 8 chars";
+    else if (f.webhook.secret.length < 16) e.trigger = "secret must be ≥ 16 chars";
+  } else if (f.triggerKind === "condition") {
+    if (!f.condition.expr.trim()) e.trigger = "condition expression required";
   }
-  return (
-    <header className="bg-gradient-to-r from-orange-500 to-red-600 text-white shadow">
-      <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-2xl">⚙️</span>
-          <h1 className="text-xl font-bold">rusty-sched</h1>
-          <span className="text-orange-200 text-sm hidden md:inline">job scheduler</span>
-        </div>
-        <div className="flex items-center gap-4 text-sm">
-          <ThemeToggle />
-          <span className="hidden md:inline">{me.username} <span className="text-orange-200">({me.role})</span></span>
-          <a href="https://github.com/jdp5949/rusty-sched" className="hover:underline hidden md:inline">★ GitHub</a>
-          <button onClick={onLogout} className="text-xs text-orange-100 hover:text-white underline">logout</button>
-        </div>
-      </div>
-      <nav className="max-w-6xl mx-auto px-6 flex gap-1 text-sm">
-        {tabs.map(t => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`px-3 py-2 rounded-t ${tab === t.id ? 'bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100' : 'text-white/80 hover:text-white'}`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
-    </header>
-  );
-}
-
-function ApiKeysPage() {
-  const [keys, setKeys] = useState([]);
-  const [name, setName] = useState("");
-  const [created, setCreated] = useState(null);
-  const [err, setErr] = useState(null);
-  async function load() {
-    try { setKeys(await api("GET", "/auth/api-keys")); } catch (e) { setErr(e.message); }
-  }
-  useEffect(() => { load(); }, []);
-  async function create(e) {
-    e.preventDefault();
-    setErr(null);
-    try {
-      const k = await api("POST", "/auth/api-keys", { name });
-      setCreated(k);
-      setName("");
-      load();
-    } catch (e) { setErr(e.message); }
-  }
-  async function del(id) {
-    if (!confirm('Delete this key? Sessions using it will stop working immediately.')) return;
-    try { await api("DELETE", `/auth/api-keys/${id}`); load(); } catch (e) { setErr(e.message); }
-  }
-  return (
-    <div>
-      <form onSubmit={create} className="bg-white border border-slate-200 rounded-xl p-5 mb-6 shadow-sm dark:bg-slate-900 dark:border-slate-800">
-        <h2 className="font-semibold mb-3">Create API key</h2>
-        <div className="grid md:grid-cols-3 gap-3">
-          <input className="border border-slate-300 rounded px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-700" placeholder="name (e.g. ci, monitoring)" value={name} onChange={e=>setName(e.target.value)} required />
-          <button className="bg-orange-600 text-white text-sm px-4 py-2 rounded hover:bg-orange-700">Create</button>
-        </div>
-        {created && (
-          <div className="mt-3 p-3 bg-amber-50 border border-amber-200 text-amber-900 rounded text-sm dark:bg-amber-900/30 dark:border-amber-800 dark:text-amber-100">
-            <div className="font-semibold mb-1">Token created — copy it now, you won't see it again:</div>
-            <div className="mono break-all bg-white dark:bg-slate-950 p-2 rounded">{created.token}</div>
-            <button className="text-xs mt-2 underline" onClick={() => setCreated(null)}>I've copied it, dismiss</button>
-          </div>
-        )}
-        {err && <div className="mt-2 text-red-600 text-sm">{err}</div>}
-      </form>
-      <table className="w-full text-sm bg-white border border-slate-200 rounded shadow-sm dark:bg-slate-900 dark:border-slate-800">
-        <thead className="text-xs uppercase text-slate-500 dark:text-slate-400">
-          <tr><th className="text-left p-3">Name</th><th className="text-left p-3">Created</th><th className="text-left p-3">Last used</th><th className="p-3"></th></tr>
-        </thead>
-        <tbody>
-          {keys.length === 0 && <tr><td colSpan="4" className="p-3 text-slate-500">No keys yet.</td></tr>}
-          {keys.map(k => (
-            <tr key={k.id} className="border-t border-slate-100 dark:border-slate-800">
-              <td className="p-3">{k.name}</td>
-              <td className="p-3 mono text-xs">{k.created_at}</td>
-              <td className="p-3 mono text-xs">{k.last_used_at || <span className="text-slate-400">never</span>}</td>
-              <td className="p-3 text-right"><button onClick={() => del(k.id)} className="text-red-600 hover:underline text-xs">delete</button></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function UsersPage() {
-  const [users, setUsers] = useState([]);
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [role, setRole] = useState("operator");
-  const [err, setErr] = useState(null);
-  async function load() {
-    try { setUsers(await api("GET", "/users")); } catch (e) { setErr(e.message); }
-  }
-  useEffect(() => { load(); }, []);
-  async function create(e) {
-    e.preventDefault();
-    setErr(null);
-    try {
-      await api("POST", "/users", { username, password, role });
-      setUsername(""); setPassword(""); load();
-    } catch (e) { setErr(e.message); }
-  }
-  return (
-    <div>
-      <form onSubmit={create} className="bg-white border border-slate-200 rounded-xl p-5 mb-6 shadow-sm dark:bg-slate-900 dark:border-slate-800">
-        <h2 className="font-semibold mb-3">Create user</h2>
-        <div className="grid md:grid-cols-4 gap-3">
-          <input className="border border-slate-300 rounded px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-700" placeholder="username" value={username} onChange={e=>setUsername(e.target.value)} required />
-          <input type="password" className="border border-slate-300 rounded px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-700" placeholder="password (≥8 chars)" value={password} onChange={e=>setPassword(e.target.value)} required />
-          <select className="border border-slate-300 rounded px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-700" value={role} onChange={e=>setRole(e.target.value)}>
-            <option value="admin">admin</option>
-            <option value="operator">operator</option>
-            <option value="viewer">viewer</option>
-          </select>
-          <button className="bg-orange-600 text-white text-sm px-4 py-2 rounded hover:bg-orange-700">Create</button>
-        </div>
-        {err && <div className="mt-2 text-red-600 text-sm">{err}</div>}
-      </form>
-      <table className="w-full text-sm bg-white border border-slate-200 rounded shadow-sm dark:bg-slate-900 dark:border-slate-800">
-        <thead className="text-xs uppercase text-slate-500 dark:text-slate-400">
-          <tr><th className="text-left p-3">Username</th><th className="text-left p-3">Role</th><th className="text-left p-3">Status</th></tr>
-        </thead>
-        <tbody>
-          {users.map(u => (
-            <tr key={u.id} className="border-t border-slate-100 dark:border-slate-800">
-              <td className="p-3 mono">{u.username}</td>
-              <td className="p-3">{u.role}</td>
-              <td className="p-3">{u.disabled ? <span className="text-red-600">disabled</span> : <span className="text-green-600">active</span>}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function AuditPage() {
-  const [entries, setEntries] = useState([]);
-  const [err, setErr] = useState(null);
-  async function load() {
-    try { setEntries(await api("GET", "/audit")); } catch (e) { setErr(e.message); }
-  }
-  useEffect(() => { load(); const id = setInterval(load, 10000); return () => clearInterval(id); }, []);
-  return (
-    <div>
-      <div className="flex justify-between items-center mb-3">
-        <h2 className="font-semibold">Audit log <span className="text-slate-500 text-sm">({entries.length})</span></h2>
-        <button onClick={load} className="text-xs text-slate-600 hover:text-slate-900 dark:text-slate-300">↻ refresh</button>
-      </div>
-      {err && <div className="text-red-600 text-sm">{err}</div>}
-      <table className="w-full text-sm bg-white border border-slate-200 rounded shadow-sm dark:bg-slate-900 dark:border-slate-800">
-        <thead className="text-xs uppercase text-slate-500 dark:text-slate-400">
-          <tr>
-            <th className="text-left p-3">Time</th>
-            <th className="text-left p-3">User</th>
-            <th className="text-left p-3">Action</th>
-            <th className="text-left p-3">Target</th>
-            <th className="text-left p-3">Payload</th>
-          </tr>
-        </thead>
-        <tbody>
-          {entries.length === 0 && <tr><td colSpan="5" className="p-3 text-slate-500">No audit entries.</td></tr>}
-          {entries.map(e => (
-            <tr key={e.id} className="border-t border-slate-100 dark:border-slate-800">
-              <td className="p-3 mono text-xs whitespace-nowrap">{e.ts}</td>
-              <td className="p-3 mono text-xs">{e.user_id || <span className="text-slate-400">system</span>}</td>
-              <td className="p-3">{e.action}</td>
-              <td className="p-3 mono text-xs">{e.target_type}{e.target_id ? `:${e.target_id.slice(0, 8)}…` : ''}</td>
-              <td className="p-3 mono text-xs">{e.payload_json || ''}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-// ---------- DAG view ----------
-//
-// Sugiyama-lite layered layout in pure JS. No external deps.
-//   1. Build adjacency from job.dependencies (upstream -> downstream).
-//   2. Assign layers via longest-path topological pass.
-//      Cycles fall back to layer 0 to keep rendering total.
-//   3. Within each layer, sort by box_id then name for stable ordering.
-//   4. Group jobs by box_id; compute bounding rects for box frames.
-
-function layoutDag(jobs) {
-  const NODE_W = 140;
-  const NODE_H = 40;
-  const COL_GAP = 80;
-  const ROW_GAP = 24;
-  const BOX_PAD = 18;
-  const MARGIN = 40;
-
-  const byId = new Map(jobs.map(j => [j.id, j]));
-  const downstream = new Map();
-  const indeg = new Map();
-  for (const j of jobs) {
-    indeg.set(j.id, 0);
-    downstream.set(j.id, []);
-  }
-  for (const j of jobs) {
-    for (const d of (j.dependencies || [])) {
-      if (!byId.has(d.upstream)) continue;
-      downstream.get(d.upstream).push(j.id);
-      indeg.set(j.id, (indeg.get(j.id) || 0) + 1);
-    }
-  }
-
-  const layer = new Map();
-  for (const j of jobs) layer.set(j.id, 0);
-  const queue = [];
-  for (const [id, d] of indeg.entries()) if (d === 0) queue.push(id);
+  const ma = Number(f.retry.max_attempts);
+  if (!(ma >= 1 && ma <= 100)) e.retry = "max attempts 1–100";
+  if (Number(f.timeout_secs) < 0) e.timeout = "timeout ≥ 0";
+  if (Number(f.sla_secs) < 0) e.sla = "sla ≥ 0";
   const seen = new Set();
-  while (queue.length) {
-    const id = queue.shift();
-    if (seen.has(id)) continue;
-    seen.add(id);
-    const cur = layer.get(id);
-    for (const next of (downstream.get(id) || [])) {
-      if (layer.get(next) < cur + 1) layer.set(next, cur + 1);
-      queue.push(next);
-    }
-  }
-
-  const layers = new Map();
-  for (const j of jobs) {
-    const L = layer.get(j.id) || 0;
-    if (!layers.has(L)) layers.set(L, []);
-    layers.get(L).push(j);
-  }
-  for (const arr of layers.values()) {
-    arr.sort((a, b) => {
-      const ba = a.box_id || '';
-      const bb = b.box_id || '';
-      if (ba !== bb) return ba < bb ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
-  }
-
-  const layerKeys = [...layers.keys()].sort((a, b) => a - b);
-  const nodes = [];
-  const pos = new Map();
-  for (const L of layerKeys) {
-    const arr = layers.get(L);
-    const x = MARGIN + L * (NODE_W + COL_GAP);
-    arr.forEach((j, i) => {
-      const y = MARGIN + i * (NODE_H + ROW_GAP);
-      const n = {
-        id: j.id,
-        name: j.name,
-        x, y,
-        box_id: j.box_id || null,
-        state: j._state || 'unknown',
-      };
-      nodes.push(n);
-      pos.set(j.id, n);
-    });
-  }
-
-  const edges = [];
-  for (const j of jobs) {
-    for (const d of (j.dependencies || [])) {
-      if (!pos.has(d.upstream) || !pos.has(j.id)) continue;
-      edges.push({ from: d.upstream, to: j.id, condition: d.condition });
-    }
-  }
-
-  const boxes = [];
-  const boxGroups = new Map();
-  for (const n of nodes) {
-    if (!n.box_id) continue;
-    if (!boxGroups.has(n.box_id)) boxGroups.set(n.box_id, []);
-    boxGroups.get(n.box_id).push(n);
-  }
-  for (const [bid, ns] of boxGroups.entries()) {
-    const minX = Math.min(...ns.map(n => n.x)) - BOX_PAD;
-    const minY = Math.min(...ns.map(n => n.y)) - BOX_PAD - 14;
-    const maxX = Math.max(...ns.map(n => n.x + NODE_W)) + BOX_PAD;
-    const maxY = Math.max(...ns.map(n => n.y + NODE_H)) + BOX_PAD;
-    boxes.push({
-      id: bid,
-      x: minX, y: minY,
-      w: maxX - minX, h: maxY - minY,
-      names: ns.map(n => n.name),
-    });
-  }
-
-  const width = nodes.length
-    ? Math.max(...nodes.map(n => n.x + NODE_W)) + MARGIN
-    : 200;
-  const height = nodes.length
-    ? Math.max(...nodes.map(n => n.y + NODE_H)) + MARGIN
-    : 200;
-
-  return { nodes, edges, boxes, width, height, nodeW: NODE_W, nodeH: NODE_H };
+  for (const { k } of f.env) { if (k && seen.has(k)) { e.env = `duplicate env key "${k}"`; break; } if (k) seen.add(k); }
+  return e;
 }
 
-function dagNodeFill(state) {
-  switch (state) {
-    case 'success':  return ['#16a34a', '#15803d'];
-    case 'failed':
-    case 'lost':
-    case 'killed':   return ['#dc2626', '#991b1b'];
-    case 'running':  return ['#2563eb', '#1d4ed8'];
-    case 'queued':
-    case 'pending':  return ['#f59e0b', '#b45309'];
-    default:         return ['#64748b', '#475569'];
+function JobBuilder({ onClose, onCreated }) {
+  const toast = useToast();
+  const [f, setF] = useState(blankBuilder);
+  const [busy, setBusy] = useState(false);
+  const set = (k, v) => setF(x => ({ ...x, [k]: v }));
+  const setIn = (group, k, v) => setF(x => ({ ...x, [group]: { ...x[group], [k]: v } }));
+
+  const job = buildJob(f);
+  const errs = validateBuilder(f);
+  const valid = Object.keys(errs).length === 0;
+  const json = JSON.stringify(job, null, 2);
+
+  // env / args row helpers
+  const addEnv = () => set("env", [...f.env, { k: "", v: "" }]);
+  const setEnv = (i, key, val) => set("env", f.env.map((r, j) => j === i ? { ...r, [key]: val } : r));
+  const delEnv = i => set("env", f.env.filter((_, j) => j !== i));
+  const addArg = () => set("args", [...f.args, ""]);
+  const setArg = (i, val) => set("args", f.args.map((a, j) => j === i ? val : a));
+  const delArg = i => set("args", f.args.filter((_, j) => j !== i));
+
+  async function create() {
+    if (!valid) return;
+    setBusy(true);
+    try { await api("POST", "/jobs", job); toast(`created ${f.name}`); onCreated(); onClose(); }
+    catch (e) { toast(e.message, "err"); setBusy(false); }
   }
-}
+  function copy() { navigator.clipboard.writeText(json).then(() => toast("JSON copied")); }
 
-function DagPage() {
-  const [jobs, setJobs] = useState(null);
-  const [err, setErr] = useState(null);
-  const [hover, setHover] = useState(null);
-  const [isDark, setIsDark] = useState(() =>
-    document.documentElement.classList.contains('dark'));
-
-  useEffect(() => {
-    const obs = new MutationObserver(() => {
-      setIsDark(document.documentElement.classList.contains('dark'));
-    });
-    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-    return () => obs.disconnect();
-  }, []);
-
-  async function load() {
-    try {
-      const js = await api('GET', '/jobs');
-      const enriched = await Promise.all(js.map(async j => {
-        try {
-          const s = await api('GET', `/stats/jobs/${j.id}`);
-          const last = (s.recent_outcomes && s.recent_outcomes.length)
-            ? s.recent_outcomes[s.recent_outcomes.length - 1]
-            : null;
-          let state = 'unknown';
-          if (last === 'success') state = 'success';
-          else if (last === 'failure') state = 'failed';
-          else if (last === 'running') state = 'running';
-          return { ...j, _state: state };
-        } catch (_) {
-          return { ...j, _state: 'unknown' };
-        }
-      }));
-      setJobs(enriched);
-      setErr(null);
-    } catch (e) {
-      setErr(e.message);
-    }
-  }
-
-  useEffect(() => {
-    load();
-    const id = setInterval(load, 5000);
-    return () => clearInterval(id);
-  }, []);
-
-  if (jobs === null) {
-    return <div className="text-slate-500 text-sm">loading…</div>;
-  }
-
-  const dag = layoutDag(jobs);
-
-  function edgePath(from, to) {
-    const x1 = from.x + dag.nodeW;
-    const y1 = from.y + dag.nodeH / 2;
-    const x2 = to.x;
-    const y2 = to.y + dag.nodeH / 2;
-    const dx = Math.max(40, (x2 - x1) / 2);
-    return `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
-  }
-
-  const nodeIndex = new Map(dag.nodes.map(n => [n.id, n]));
-
-  const boxStroke   = isDark ? '#475569' : '#cbd5e1';
-  const boxFill     = isDark ? 'rgba(148,163,184,0.08)' : 'rgba(148,163,184,0.15)';
-  const edgeStroke  = isDark ? '#64748b' : '#94a3b8';
-  const labelFill   = isDark ? '#cbd5e1' : '#475569';
-  const nodeStroke  = isDark ? '#1e293b' : '#ffffff';
-  const nodeText    = '#ffffff';
+  const Err = ({ k }) => errs[k] ? <span style={{ color: "var(--danger)", fontSize: 11.5 }}>{errs[k]}</span> : null;
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="font-semibold">
-          DAG <span className="text-slate-500 text-sm">({jobs.length} jobs, {dag.edges.length} edges, {dag.boxes.length} boxes)</span>
-        </h2>
-        <div className="flex items-center gap-3 text-xs">
-          <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded" style={{background:'#16a34a'}}></span>success</span>
-          <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded" style={{background:'#dc2626'}}></span>failed</span>
-          <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded" style={{background:'#2563eb'}}></span>running</span>
-          <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded" style={{background:'#64748b'}}></span>unknown</span>
-          <button onClick={load} className="text-slate-600 hover:text-slate-900 dark:text-slate-300">↻ refresh</button>
-        </div>
-      </div>
-      {err && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded text-sm mb-3 dark:bg-red-900/30 dark:border-red-800 dark:text-red-200">{err}</div>}
-      {jobs.length === 0 && <div className="text-slate-500 text-sm">No jobs to graph.</div>}
-      {jobs.length > 0 && (
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm overflow-auto dark:bg-slate-900 dark:border-slate-800">
-          <svg
-            width="100%"
-            viewBox={`0 0 ${dag.width} ${dag.height}`}
-            style={{minWidth: dag.width, maxWidth: '100%', height: 'auto'}}
-            preserveAspectRatio="xMinYMin meet"
-          >
-            <defs>
-              <marker id="dag-arrow" viewBox="0 0 10 10" refX="9" refY="5"
-                markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-                <path d="M 0 0 L 10 5 L 0 10 z" fill={edgeStroke} />
-              </marker>
-            </defs>
-
-            {dag.boxes.map(b => (
-              <g key={b.id}>
-                <rect
-                  x={b.x} y={b.y} width={b.w} height={b.h}
-                  rx="12" ry="12"
-                  fill={boxFill}
-                  stroke={boxStroke}
-                  strokeDasharray="6 4"
-                />
-                <text
-                  x={b.x + 10} y={b.y + 14}
-                  fontSize="11"
-                  fill={labelFill}
-                  fontFamily="ui-monospace, Menlo, monospace"
-                >
-                  box {b.id.slice(0, 8)}…
-                </text>
-              </g>
-            ))}
-
-            {dag.edges.map((e, i) => {
-              const from = nodeIndex.get(e.from);
-              const to   = nodeIndex.get(e.to);
-              if (!from || !to) return null;
-              return (
-                <path
-                  key={i}
-                  d={edgePath(from, to)}
-                  fill="none"
-                  stroke={edgeStroke}
-                  strokeWidth="1.5"
-                  markerEnd="url(#dag-arrow)"
-                >
-                  <title>{e.condition}</title>
-                </path>
-              );
-            })}
-
-            {dag.nodes.map(n => {
-              const [lightHex, darkHex] = dagNodeFill(n.state);
-              const fill = isDark ? darkHex : lightHex;
-              return (
-                <g
-                  key={n.id}
-                  onMouseEnter={() => setHover(n)}
-                  onMouseLeave={() => setHover(h => h && h.id === n.id ? null : h)}
-                  style={{cursor: 'pointer'}}
-                >
-                  <rect
-                    x={n.x} y={n.y}
-                    width={dag.nodeW} height={dag.nodeH}
-                    rx="8" ry="8"
-                    fill={fill}
-                    stroke={nodeStroke}
-                    strokeWidth="2"
-                  />
-                  <text
-                    x={n.x + dag.nodeW / 2}
-                    y={n.y + dag.nodeH / 2 + 4}
-                    textAnchor="middle"
-                    fontSize="12"
-                    fontWeight="600"
-                    fill={nodeText}
-                  >
-                    {n.name.length > 18 ? n.name.slice(0, 17) + '…' : n.name}
-                  </text>
-                  <title>{n.name} — {n.state}</title>
-                </g>
-              );
-            })}
-          </svg>
-          {hover && (
-            <div className="mt-2 text-xs text-slate-600 dark:text-slate-300 mono">
-              {hover.name} · <span className={stateColor(hover.state)}>{hover.state}</span>
-              {hover.box_id && <span> · box <span className="text-slate-400">{hover.box_id}</span></span>}
+    <div className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 920 }}>
+        <div className="modal-head row"><span style={{ fontWeight: 650, fontSize: 15 }}>Job builder</span><span style={{ flex: 1 }} /><button className="icon-btn" onClick={onClose}><Icon name="close" /></button></div>
+        <div className="modal-body" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+          {/* ---- form ---- */}
+          <div className="grid" style={{ gap: 12, alignContent: "start" }}>
+            <div className="field"><label>Name <Err k="name" /></label><input value={f.name} onChange={e => set("name", e.target.value)} placeholder="nightly-etl" /></div>
+            <div className="field"><label>Command <Err k="cmd" /></label><input className="mono" value={f.cmd} onChange={e => set("cmd", e.target.value)} /></div>
+            <div className="row" style={{ gap: 10 }}>
+              <div className="field" style={{ flex: 1 }}><label>Shell</label><select value={f.shell} onChange={e => set("shell", e.target.value)}>{SHELLS.map(s => <option key={s}>{s}</option>)}</select></div>
+              <div className="field" style={{ flex: 1 }}><label>Working dir</label><input value={f.cwd} onChange={e => set("cwd", e.target.value)} placeholder="(optional)" /></div>
             </div>
-          )}
+
+            <div className="field"><label>Trigger <Err k="trigger" /></label>
+              <select value={f.triggerKind} onChange={e => set("triggerKind", e.target.value)}>{TRIGGER_KINDS.map(t => <option key={t} value={t}>{t}</option>)}</select>
+            </div>
+            {f.triggerKind === "cron" && (
+              <div className="row" style={{ gap: 10 }}>
+                <div className="field" style={{ flex: 2 }}><label>Cron expression</label><input className="mono" value={f.cron.expr} onChange={e => setIn("cron", "expr", e.target.value)} /></div>
+                <div className="field" style={{ flex: 1 }}><label>Timezone</label><input value={f.cron.timezone} onChange={e => setIn("cron", "timezone", e.target.value)} placeholder="UTC" /></div>
+              </div>
+            )}
+            {f.triggerKind === "interval" && <div className="field"><label>Every (seconds)</label><input type="number" min="1" value={f.interval.every} onChange={e => setIn("interval", "every", e.target.value)} /></div>}
+            {f.triggerKind === "one_shot" && <div className="field"><label>Fire at</label><input type="datetime-local" value={f.oneshot.at} onChange={e => setIn("oneshot", "at", e.target.value)} /></div>}
+            {f.triggerKind === "file" && (
+              <div className="row" style={{ gap: 10 }}>
+                <div className="field" style={{ flex: 2 }}><label>Path</label><input className="mono" value={f.file.path} onChange={e => setIn("file", "path", e.target.value)} placeholder="/data/incoming" /></div>
+                <div className="field" style={{ flex: 1 }}><label>Event</label><select value={f.file.event} onChange={e => setIn("file", "event", e.target.value)}>{FILE_EVENTS.map(ev => <option key={ev}>{ev}</option>)}</select></div>
+              </div>
+            )}
+            {f.triggerKind === "webhook" && (
+              <div className="row" style={{ gap: 10 }}>
+                <div className="field" style={{ flex: 1 }}><label>Slug (≥8)</label><input className="mono" value={f.webhook.slug} onChange={e => setIn("webhook", "slug", e.target.value)} /></div>
+                <div className="field" style={{ flex: 1 }}><label>Secret (≥16)</label><input className="mono" value={f.webhook.secret} onChange={e => setIn("webhook", "secret", e.target.value)} /></div>
+              </div>
+            )}
+            {f.triggerKind === "condition" && <div className="field"><label>Condition expr</label><input className="mono" value={f.condition.expr} onChange={e => setIn("condition", "expr", e.target.value)} placeholder="success(jobA) and value(IS_RUN_DAY)" /></div>}
+
+            <div className="field"><label>Arguments</label>
+              {f.args.map((a, i) => <div key={i} className="row" style={{ gap: 6, marginBottom: 6 }}><input className="mono" style={{ flex: 1 }} value={a} onChange={e => setArg(i, e.target.value)} /><button className="icon-btn" onClick={() => delArg(i)}><Icon name="trash" /></button></div>)}
+              <button className="btn btn-sm" onClick={addArg}><Icon name="plus" width="13" height="13" />Add arg</button>
+            </div>
+            <div className="field"><label>Environment <Err k="env" /></label>
+              {f.env.map((r, i) => <div key={i} className="row" style={{ gap: 6, marginBottom: 6 }}><input style={{ flex: 1 }} placeholder="KEY" value={r.k} onChange={e => setEnv(i, "k", e.target.value)} /><input className="mono" style={{ flex: 1 }} placeholder="value" value={r.v} onChange={e => setEnv(i, "v", e.target.value)} /><button className="icon-btn" onClick={() => delEnv(i)}><Icon name="trash" /></button></div>)}
+              <button className="btn btn-sm" onClick={addEnv}><Icon name="plus" width="13" height="13" />Add var</button>
+            </div>
+
+            <div className="row" style={{ gap: 10 }}>
+              <div className="field" style={{ flex: 1 }}><label>Timeout (s, 0=∞) <Err k="timeout" /></label><input type="number" min="0" value={f.timeout_secs} onChange={e => set("timeout_secs", e.target.value)} /></div>
+              <div className="field" style={{ flex: 1 }}><label>SLA (s) <Err k="sla" /></label><input type="number" min="0" value={f.sla_secs} onChange={e => set("sla_secs", e.target.value)} /></div>
+            </div>
+            <div className="row" style={{ gap: 10 }}>
+              <div className="field" style={{ flex: 1 }}><label>Max attempts <Err k="retry" /></label><input type="number" min="1" max="100" value={f.retry.max_attempts} onChange={e => setIn("retry", "max_attempts", e.target.value)} /></div>
+              <div className="field" style={{ flex: 1 }}><label>Backoff</label><select value={f.retry.backoffKind} onChange={e => setIn("retry", "backoffKind", e.target.value)}><option value="none">none</option><option value="fixed">fixed</option><option value="exponential">exponential</option></select></div>
+            </div>
+            {f.retry.backoffKind === "fixed" && <div className="field" style={{ maxWidth: 200 }}><label>Delay (s)</label><input type="number" min="0" value={f.retry.delay_secs} onChange={e => setIn("retry", "delay_secs", e.target.value)} /></div>}
+            {f.retry.backoffKind === "exponential" && (
+              <div className="row" style={{ gap: 10 }}>
+                <div className="field" style={{ flex: 1 }}><label>Base (s)</label><input type="number" min="0" value={f.retry.base_secs} onChange={e => setIn("retry", "base_secs", e.target.value)} /></div>
+                <div className="field" style={{ flex: 1 }}><label>Max (s)</label><input type="number" min="0" value={f.retry.max_secs} onChange={e => setIn("retry", "max_secs", e.target.value)} /></div>
+              </div>
+            )}
+            <div className="field"><label>Misfire policy</label><select value={f.misfire} onChange={e => set("misfire", e.target.value)}><option value="fire_once">fire_once</option><option value="skip">skip</option><option value="fire_all_missed">fire_all_missed</option></select></div>
+          </div>
+
+          {/* ---- live JSON ---- */}
+          <div className="grid" style={{ gap: 10, alignContent: "start" }}>
+            <div className="row"><label style={{ fontSize: 12, color: "var(--text-dim)", fontWeight: 550 }}>Generated job JSON</label><span className="spacer" style={{ flex: 1 }} />
+              <span className={"pill " + (valid ? "success" : "failed")}>{valid ? "valid" : Object.keys(errs).length + " issue(s)"}</span>
+            </div>
+            <pre className="console" style={{ maxHeight: 420, margin: 0, whiteSpace: "pre" }}>{json}</pre>
+            {!valid && (
+              <div className="alert-err">
+                <ul style={{ margin: 0, paddingLeft: 18 }}>{Object.entries(errs).map(([k, v]) => <li key={k}>{v}</li>)}</ul>
+              </div>
+            )}
+            <button className="btn btn-sm" onClick={copy} style={{ alignSelf: "start" }}><Icon name="keys" width="13" height="13" />Copy JSON</button>
+          </div>
         </div>
-      )}
+        <div className="modal-foot"><button className="btn" onClick={onClose}>Cancel</button><button className="btn btn-primary" disabled={!valid || busy} onClick={create}>{busy ? "Creating…" : "Create job"}</button></div>
+      </div>
     </div>
   );
 }
 
+/* ============ Edit job (raw JSON) ============ */
+function JobEditModal({ job, onClose, onSaved }) {
+  const toast = useToast();
+  const [text, setText] = useState(() => JSON.stringify(job, null, 2));
+  const [busy, setBusy] = useState(false);
+  async function save() {
+    let parsed;
+    try { parsed = JSON.parse(text); } catch (e) { toast("Invalid JSON: " + e.message, "err"); return; }
+    setBusy(true);
+    try { await api("PUT", `/jobs/${job.id}`, parsed); toast("saved"); onSaved(); }
+    catch (e) { toast(e.message, "err"); setBusy(false); }
+  }
+  return (
+    <div className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 640 }}>
+        <div className="modal-head row"><span style={{ fontWeight: 650, fontSize: 15 }}>Edit <span style={{ color: "var(--accent)" }}>{job.name}</span></span><span style={{ flex: 1 }} /><button className="icon-btn" onClick={onClose}><Icon name="close" /></button></div>
+        <div className="modal-body">
+          <textarea className="mono" style={{ width: "100%", height: 380, resize: "vertical", lineHeight: 1.5 }} value={text} onChange={e => setText(e.target.value)} spellCheck={false} />
+        </div>
+        <div className="modal-foot"><button className="btn" onClick={onClose}>Cancel</button><button className="btn btn-primary" disabled={busy} onClick={save}>{busy ? "Saving…" : "Save"}</button></div>
+      </div>
+    </div>
+  );
+}
+
+/* ============ Jobs page ============ */
 function JobsPage() {
   const [jobs, setJobs] = useState(null);
   const [filter, setFilter] = useState("");
-  const [err, setErr] = useState(null);
-
-  async function load() {
-    try {
-      setJobs(await api("GET", "/jobs"));
-      setErr(null);
-    } catch (e) { setErr(e.message); }
-  }
-  useEffect(() => { load(); const id = setInterval(load, 5000); return () => clearInterval(id); }, []);
-
-  const filtered = jobs && filter
-    ? jobs.filter(j => j.name.toLowerCase().includes(filter.toLowerCase()) || j.cmd.toLowerCase().includes(filter.toLowerCase()))
-    : jobs;
-
+  const [creating, setCreating] = useState(false);
+  const toast = useToast();
+  async function load() { try { setJobs(await api("GET", "/jobs")); } catch (e) { toast(e.message, "err"); } }
+  useEffect(() => { load(); const id = setInterval(load, 6000); return () => clearInterval(id); }, []);
+  const shown = jobs && filter ? jobs.filter(j => (j.name + j.cmd).toLowerCase().includes(filter.toLowerCase())) : jobs;
   return (
-    <>
-      <NewJobForm onCreated={load} />
-      <div className="flex items-center justify-between mb-3 gap-3">
-        <h2 className="font-semibold whitespace-nowrap">Jobs {jobs && <span className="text-slate-500 text-sm">({filtered.length}{filter && jobs.length !== filtered.length ? `/${jobs.length}` : ''})</span>}</h2>
-        <input
-          className="flex-1 max-w-xs border border-slate-300 rounded px-3 py-1 text-sm dark:bg-slate-800 dark:border-slate-700"
-          placeholder="filter by name or command…"
-          value={filter}
-          onChange={e=>setFilter(e.target.value)}
-        />
-        <button onClick={load} className="text-xs text-slate-600 hover:text-slate-900 dark:text-slate-300">↻ refresh</button>
+    <div>
+      {creating && <JobBuilder onClose={() => setCreating(false)} onCreated={load} />}
+      <div className="row" style={{ marginBottom: 16 }}>
+        <input style={{ width: 280 }} placeholder="Filter jobs…" value={filter} onChange={e => setFilter(e.target.value)} />
+        <span className="spacer" style={{ flex: 1 }} />
+        <button className="icon-btn" onClick={load} title="Refresh"><Icon name="refresh" /></button>
+        <button className="btn btn-primary" onClick={() => setCreating(true)}><Icon name="plus" width="14" height="14" />New job</button>
       </div>
-      {err && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded text-sm mb-3 dark:bg-red-900/30 dark:border-red-800 dark:text-red-200">{err}</div>}
-      {jobs === null && <div className="text-slate-500 text-sm">loading…</div>}
-      {jobs && jobs.length === 0 && <div className="text-slate-500 text-sm">No jobs yet. Create one above.</div>}
-      {filtered && filtered.map(j => <JobRow key={j.id} job={j} onChange={load} />)}
-    </>
+      {!jobs && <div className="empty">loading…</div>}
+      {jobs && shown.length === 0 && <div className="card card-pad empty">No jobs{filter ? " match filter" : " yet — create one"}.</div>}
+      {shown && shown.map(j => <JobCard key={j.id} job={j} onChange={load} />)}
+    </div>
   );
 }
 
-function ResourcesPage() {
-  const [rows, setRows] = useState([]);
-  const [name, setName] = useState("");
-  const [capacity, setCapacity] = useState("");
-  const [description, setDescription] = useState("");
-  const [err, setErr] = useState(null);
-
+/* ============ Runs page (aggregate across jobs) ============ */
+function RunsPage() {
+  const [rows, setRows] = useState(null);
+  const [openRun, setOpenRun] = useState(null);
+  const [stateFilter, setStateFilter] = useState("all");
+  const toast = useToast();
   async function load() {
-    try { setRows(await api("GET", "/resources")); } catch (e) { setErr(e.message); }
+    try {
+      const jobs = await api("GET", "/jobs");
+      const all = await Promise.all(jobs.map(async j => {
+        try { const rs = await api("GET", `/jobs/${j.id}/runs`); return rs.map(r => ({ ...r, job: j.name })); } catch { return []; }
+      }));
+      const flat = all.flat().sort((a, b) => new Date(b.queued_at) - new Date(a.queued_at)).slice(0, 100);
+      setRows(flat);
+    } catch (e) { toast(e.message, "err"); }
   }
-  useEffect(() => { load(); const id = setInterval(load, 4000); return () => clearInterval(id); }, []);
+  useEffect(() => { load(); const id = setInterval(load, 7000); return () => clearInterval(id); }, []);
+  const shown = rows && stateFilter !== "all" ? rows.filter(r => r.state === stateFilter) : rows;
+  return (
+    <div>
+      <div className="row" style={{ marginBottom: 16 }}>
+        <select style={{ width: 160 }} value={stateFilter} onChange={e => setStateFilter(e.target.value)}>
+          {["all", "running", "success", "failed", "killed", "lost", "skipped"].map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <span className="spacer" style={{ flex: 1 }} />
+        <button className="icon-btn" onClick={load} title="Refresh"><Icon name="refresh" /></button>
+      </div>
+      <div className="card">
+        <table>
+          <thead><tr><th>State</th><th>Job</th><th>Attempt</th><th>Queued</th><th>Exit</th><th></th></tr></thead>
+          <tbody>
+            {!rows && <tr><td colSpan="6" className="empty">loading…</td></tr>}
+            {shown && shown.length === 0 && <tr><td colSpan="6" className="empty">no runs</td></tr>}
+            {shown && shown.map(r => (
+              <React.Fragment key={r.id}>
+                <tr>
+                  <td><span className={"pill " + r.state}>{r.state}</span></td>
+                  <td style={{ fontWeight: 550 }}>{r.job}</td>
+                  <td className="mono">#{r.attempt}</td>
+                  <td style={{ color: "var(--text-dim)" }}>{fmtTime(r.queued_at)}</td>
+                  <td className="mono">{r.exit_code != null ? r.exit_code : "—"}</td>
+                  <td style={{ textAlign: "right" }}><button className="btn btn-sm" onClick={() => setOpenRun(openRun === r.id ? null : r.id)}>{openRun === r.id ? "Hide" : "Log"}</button></td>
+                </tr>
+                {openRun === r.id && <tr><td colSpan="6"><RunDetail runId={r.id} /></td></tr>}
+              </React.Fragment>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
+/* ============ DAG page ============ */
+function layoutDag(jobs) {
+  const NW = 150, NH = 42, CG = 90, RG = 26, BP = 18, M = 40;
+  const byId = new Map(jobs.map(j => [j.id, j]));
+  const down = new Map(), indeg = new Map();
+  jobs.forEach(j => { indeg.set(j.id, 0); down.set(j.id, []); });
+  jobs.forEach(j => (j.dependencies || []).forEach(d => {
+    if (!byId.has(d.upstream)) return;
+    down.get(d.upstream).push(j.id); indeg.set(j.id, indeg.get(j.id) + 1);
+  }));
+  const layer = new Map(); jobs.forEach(j => layer.set(j.id, 0));
+  const q = []; indeg.forEach((d, id) => d === 0 && q.push(id));
+  const seen = new Set();
+  while (q.length) {
+    const id = q.shift(); if (seen.has(id)) continue; seen.add(id);
+    const c = layer.get(id);
+    (down.get(id) || []).forEach(n => { if (layer.get(n) < c + 1) layer.set(n, c + 1); q.push(n); });
+  }
+  const layers = new Map();
+  jobs.forEach(j => { const L = layer.get(j.id) || 0; if (!layers.has(L)) layers.set(L, []); layers.get(L).push(j); });
+  const keys = [...layers.keys()].sort((a, b) => a - b);
+  const nodes = [], pos = new Map();
+  keys.forEach(L => layers.get(L).forEach((j, i) => {
+    const n = { id: j.id, name: j.name, x: M + L * (NW + CG), y: M + i * (NH + RG), state: j._state || "unknown" };
+    nodes.push(n); pos.set(j.id, n);
+  }));
+  const edges = [];
+  jobs.forEach(j => (j.dependencies || []).forEach(d => {
+    if (pos.has(d.upstream) && pos.has(j.id)) edges.push({ from: d.upstream, to: j.id });
+  }));
+  const width = nodes.length ? Math.max(...nodes.map(n => n.x + NW)) + M : 300;
+  const height = nodes.length ? Math.max(...nodes.map(n => n.y + NH)) + M : 200;
+  return { nodes, edges, width, height, NW, NH };
+}
+function dagFill(s) {
+  return s === "success" ? "var(--success)" : (s === "failed" || s === "lost" || s === "killed") ? "var(--danger)"
+    : s === "running" ? "var(--running)" : s === "queued" || s === "pending" ? "var(--warning)" : "var(--muted)";
+}
+function DagPage() {
+  const [jobs, setJobs] = useState(null);
+  async function load() {
+    const js = await api("GET", "/jobs");
+    const enr = await Promise.all(js.map(async j => {
+      try { const s = await api("GET", `/stats/jobs/${j.id}`); const last = (s.recent_outcomes || []).slice(-1)[0];
+        return { ...j, _state: last === "success" ? "success" : last === "failure" ? "failed" : last === "running" ? "running" : "unknown" };
+      } catch { return { ...j, _state: "unknown" }; }
+    }));
+    setJobs(enr);
+  }
+  useEffect(() => { load(); const id = setInterval(load, 5000); return () => clearInterval(id); }, []);
+  if (!jobs) return <div className="empty">loading…</div>;
+  if (!jobs.length) return <div className="card card-pad empty">No jobs to graph.</div>;
+  const d = layoutDag(jobs);
+  const idx = new Map(d.nodes.map(n => [n.id, n]));
+  const path = (f, t) => { const x1 = f.x + d.NW, y1 = f.y + d.NH / 2, x2 = t.x, y2 = t.y + d.NH / 2, dx = Math.max(40, (x2 - x1) / 2); return `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`; };
+  return (
+    <div className="card card-pad" style={{ overflow: "auto" }}>
+      <div className="row" style={{ marginBottom: 12, gap: 14, fontSize: 12, color: "var(--text-dim)" }}>
+        <span>{jobs.length} jobs · {d.edges.length} edges</span>
+        <span className="spacer" style={{ flex: 1 }} />
+        {["success", "failed", "running", "unknown"].map(s => <span key={s} className="row" style={{ gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: dagFill(s) }} />{s}</span>)}
+      </div>
+      <svg width="100%" viewBox={`0 0 ${d.width} ${d.height}`} style={{ minWidth: d.width, maxWidth: "100%", height: "auto" }}>
+        <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--border-strong)" /></marker></defs>
+        {d.edges.map((e, i) => { const f = idx.get(e.from), t = idx.get(e.to); return f && t ? <path key={i} d={path(f, t)} fill="none" stroke="var(--border-strong)" strokeWidth="1.5" markerEnd="url(#arr)" /> : null; })}
+        {d.nodes.map(n => (
+          <g key={n.id}>
+            <rect x={n.x} y={n.y} width={d.NW} height={d.NH} rx="9" fill={dagFill(n.state)} />
+            <text x={n.x + d.NW / 2} y={n.y + d.NH / 2 + 4} textAnchor="middle" fontSize="12" fontWeight="600" fill="#fff">{n.name.length > 18 ? n.name.slice(0, 17) + "…" : n.name}</text>
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+/* ============ Resources ============ */
+function ResourcesPage() {
+  const toast = useToast();
+  const [rows, setRows] = useState([]);
+  const [f, setF] = useState({ name: "", capacity: "", description: "" });
+  async function load() { try { setRows(await api("GET", "/resources")); } catch (e) { toast(e.message, "err"); } }
+  useEffect(() => { load(); const id = setInterval(load, 5000); return () => clearInterval(id); }, []);
   async function create(e) {
     e.preventDefault();
-    setErr(null);
-    try {
-      await api("POST", "/resources", { name, capacity: parseInt(capacity, 10), description: description || null });
-      setName(""); setCapacity(""); setDescription("");
-      load();
-    } catch (e) { setErr(e.message); }
+    try { await api("POST", "/resources", { name: f.name, capacity: parseInt(f.capacity, 10), description: f.description || null }); setF({ name: "", capacity: "", description: "" }); load(); toast("resource created"); }
+    catch (e) { toast(e.message, "err"); }
   }
-
-  async function del(n) {
-    if (!confirm(`Delete resource "${n}"? Any holds will be released.`)) return;
-    try { await api("DELETE", `/resources/${encodeURIComponent(n)}`); load(); } catch (e) { setErr(e.message); }
-  }
-
+  async function del(n) { if (!confirm(`Delete resource "${n}"?`)) return; try { await api("DELETE", `/resources/${encodeURIComponent(n)}`); load(); } catch (e) { toast(e.message, "err"); } }
   return (
     <div>
-      <form onSubmit={create} className="bg-white border border-slate-200 rounded-xl p-5 mb-6 shadow-sm dark:bg-slate-900 dark:border-slate-800">
-        <h2 className="font-semibold mb-3">Create virtual resource</h2>
-        <div className="grid md:grid-cols-4 gap-3">
-          <input className="border border-slate-300 rounded px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-700" placeholder="name (e.g. db.connections)" value={name} onChange={e=>setName(e.target.value)} required />
-          <input type="number" min="1" className="border border-slate-300 rounded px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-700" placeholder="capacity" value={capacity} onChange={e=>setCapacity(e.target.value)} required />
-          <input className="border border-slate-300 rounded px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-700" placeholder="description (optional)" value={description} onChange={e=>setDescription(e.target.value)} />
-          <button className="bg-orange-600 text-white text-sm px-4 py-2 rounded hover:bg-orange-700">Create</button>
-        </div>
-        {err && <div className="mt-2 text-red-600 text-sm">{err}</div>}
+      <form className="card card-pad row" style={{ marginBottom: 16, gap: 10, flexWrap: "wrap" }} onSubmit={create}>
+        <input placeholder="name (db.connections)" value={f.name} onChange={e => setF({ ...f, name: e.target.value })} required />
+        <input type="number" min="1" style={{ width: 120 }} placeholder="capacity" value={f.capacity} onChange={e => setF({ ...f, capacity: e.target.value })} required />
+        <input placeholder="description" value={f.description} onChange={e => setF({ ...f, description: e.target.value })} style={{ flex: 1, minWidth: 140 }} />
+        <button className="btn btn-primary"><Icon name="plus" width="14" height="14" />Add</button>
       </form>
-      <table className="w-full text-sm bg-white border border-slate-200 rounded shadow-sm dark:bg-slate-900 dark:border-slate-800">
-        <thead className="text-xs uppercase text-slate-500 dark:text-slate-400">
-          <tr>
-            <th className="text-left p-3">Name</th>
-            <th className="text-left p-3">Capacity</th>
-            <th className="text-left p-3">Available</th>
-            <th className="text-left p-3">In use</th>
-            <th className="text-left p-3">Description</th>
-            <th className="p-3"></th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 && <tr><td colSpan="6" className="p-3 text-slate-500">No resources yet.</td></tr>}
-          {rows.map(r => {
-            const inUse = r.capacity - r.available;
-            const pct = r.capacity > 0 ? Math.round((inUse / r.capacity) * 100) : 0;
-            return (
-              <tr key={r.id} className="border-t border-slate-100 dark:border-slate-800">
-                <td className="p-3 mono">{r.name}</td>
-                <td className="p-3">{r.capacity}</td>
-                <td className="p-3 text-green-600">{r.available}</td>
-                <td className="p-3">
-                  <div className="flex items-center gap-2">
-                    <div className="w-24 h-2 bg-slate-200 dark:bg-slate-800 rounded">
-                      <div className="h-2 bg-orange-500 rounded" style={{width: `${pct}%`}}></div>
-                    </div>
-                    <span className="text-xs">{inUse}/{r.capacity}</span>
-                  </div>
-                </td>
-                <td className="p-3 text-slate-500">{r.description || ''}</td>
-                <td className="p-3 text-right"><button onClick={() => del(r.name)} className="text-red-600 hover:underline text-xs">delete</button></td>
+      <div className="card">
+        <table>
+          <thead><tr><th>Name</th><th>Capacity</th><th>In use</th><th>Description</th><th></th></tr></thead>
+          <tbody>
+            {rows.length === 0 && <tr><td colSpan="5" className="empty">no resources</td></tr>}
+            {rows.map(r => { const used = r.capacity - r.available, pct = r.capacity ? Math.round(used / r.capacity * 100) : 0; return (
+              <tr key={r.id}>
+                <td className="mono" style={{ fontWeight: 550 }}>{r.name}</td>
+                <td>{r.capacity}</td>
+                <td><div className="row"><div className="progress"><div style={{ width: pct + "%" }} /></div><span style={{ fontSize: 12 }}>{used}/{r.capacity}</span></div></td>
+                <td style={{ color: "var(--text-dim)" }}>{r.description || ""}</td>
+                <td style={{ textAlign: "right" }}><button className="btn btn-sm btn-danger" onClick={() => del(r.name)}>Delete</button></td>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
+            ); })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
 
+/* ============ Globals ============ */
 function GlobalsPage() {
+  const toast = useToast();
   const [rows, setRows] = useState([]);
-  const [name, setName] = useState("");
-  const [value, setValue] = useState("");
-  const [err, setErr] = useState(null);
-
-  async function load() {
-    try { setRows(await api("GET", "/globals")); } catch (e) { setErr(e.message); }
-  }
-  useEffect(() => { load(); const id = setInterval(load, 5000); return () => clearInterval(id); }, []);
-
-  async function setVar(e) {
-    e.preventDefault();
-    setErr(null);
-    try {
-      await api("POST", "/globals", { name, value });
-      setName(""); setValue(""); load();
-    } catch (e) { setErr(e.message); }
-  }
-
-  async function del(n) {
-    if (!confirm(`Delete global "${n}"?`)) return;
-    try { await api("DELETE", `/globals/${encodeURIComponent(n)}`); load(); } catch (e) { setErr(e.message); }
-  }
-
+  const [f, setF] = useState({ name: "", value: "" });
+  async function load() { try { setRows(await api("GET", "/globals")); } catch (e) { toast(e.message, "err"); } }
+  useEffect(() => { load(); const id = setInterval(load, 6000); return () => clearInterval(id); }, []);
+  async function setVar(e) { e.preventDefault(); try { await api("POST", "/globals", f); setF({ name: "", value: "" }); load(); toast("global set"); } catch (e) { toast(e.message, "err"); } }
+  async function del(n) { if (!confirm(`Delete global "${n}"?`)) return; try { await api("DELETE", `/globals/${encodeURIComponent(n)}`); load(); } catch (e) { toast(e.message, "err"); } }
   return (
     <div>
-      <form onSubmit={setVar} className="bg-white border border-slate-200 rounded-xl p-5 mb-6 shadow-sm dark:bg-slate-900 dark:border-slate-800">
-        <h2 className="font-semibold mb-3">Set global variable</h2>
-        <p className="text-xs text-slate-500 mb-3">Used by Autosys-style <span className="mono">value(name)</span> in condition expressions. Truthy values: <span className="mono">y / yes / true / 1</span>.</p>
-        <div className="grid md:grid-cols-3 gap-3">
-          <input className="border border-slate-300 rounded px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-700" placeholder="name (e.g. IS_RUN_DAY)" value={name} onChange={e=>setName(e.target.value)} required />
-          <input className="border border-slate-300 rounded px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-700" placeholder="value" value={value} onChange={e=>setValue(e.target.value)} required />
-          <button className="bg-orange-600 text-white text-sm px-4 py-2 rounded hover:bg-orange-700">Set</button>
-        </div>
-        {err && <div className="mt-2 text-red-600 text-sm">{err}</div>}
+      <form className="card card-pad row" style={{ marginBottom: 16, gap: 10 }} onSubmit={setVar}>
+        <input placeholder="name (IS_RUN_DAY)" value={f.name} onChange={e => setF({ ...f, name: e.target.value })} required />
+        <input placeholder="value (y / 1 / true)" value={f.value} onChange={e => setF({ ...f, value: e.target.value })} required style={{ flex: 1 }} />
+        <button className="btn btn-primary">Set</button>
       </form>
-      <table className="w-full text-sm bg-white border border-slate-200 rounded shadow-sm dark:bg-slate-900 dark:border-slate-800">
-        <thead className="text-xs uppercase text-slate-500 dark:text-slate-400">
-          <tr><th className="text-left p-3">Name</th><th className="text-left p-3">Value</th><th className="text-left p-3">Updated</th><th className="p-3"></th></tr>
-        </thead>
+      <div className="card">
+        <table>
+          <thead><tr><th>Name</th><th>Value</th><th>Updated</th><th></th></tr></thead>
+          <tbody>
+            {rows.length === 0 && <tr><td colSpan="4" className="empty">no globals</td></tr>}
+            {rows.map(g => (
+              <tr key={g.name}><td className="mono" style={{ fontWeight: 550 }}>{g.name}</td><td className="mono">{g.value}</td><td style={{ color: "var(--text-dim)", fontSize: 12 }} className="mono">{g.updated_at}</td><td style={{ textAlign: "right" }}><button className="btn btn-sm btn-danger" onClick={() => del(g.name)}>Delete</button></td></tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ============ Users ============ */
+function UsersPage() {
+  const toast = useToast();
+  const [users, setUsers] = useState([]);
+  const [f, setF] = useState({ username: "", password: "", role: "operator" });
+  async function load() { try { setUsers(await api("GET", "/users")); } catch (e) { toast(e.message, "err"); } }
+  useEffect(() => { load(); }, []);
+  async function create(e) { e.preventDefault(); try { await api("POST", "/users", f); setF({ username: "", password: "", role: "operator" }); load(); toast("user created"); } catch (e) { toast(e.message, "err"); } }
+  return (
+    <div>
+      <form className="card card-pad row" style={{ marginBottom: 16, gap: 10, flexWrap: "wrap" }} onSubmit={create}>
+        <input placeholder="username" value={f.username} onChange={e => setF({ ...f, username: e.target.value })} required />
+        <input type="password" placeholder="password (≥8)" value={f.password} onChange={e => setF({ ...f, password: e.target.value })} required />
+        <select value={f.role} onChange={e => setF({ ...f, role: e.target.value })}><option>admin</option><option>operator</option><option>viewer</option></select>
+        <button className="btn btn-primary"><Icon name="plus" width="14" height="14" />Add user</button>
+      </form>
+      <div className="card">
+        <table>
+          <thead><tr><th>Username</th><th>Role</th><th>Status</th></tr></thead>
+          <tbody>
+            {users.map(u => <tr key={u.id}><td className="mono" style={{ fontWeight: 550 }}>{u.username}</td><td><span className="tag">{u.role}</span></td><td>{u.disabled ? <span className="pill failed">disabled</span> : <span className="pill success">active</span>}</td></tr>)}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ============ API keys ============ */
+function ApiKeysPage() {
+  const toast = useToast();
+  const [keys, setKeys] = useState([]);
+  const [name, setName] = useState("");
+  const [created, setCreated] = useState(null);
+  async function load() { try { setKeys(await api("GET", "/auth/api-keys")); } catch (e) { toast(e.message, "err"); } }
+  useEffect(() => { load(); }, []);
+  async function create(e) { e.preventDefault(); try { const k = await api("POST", "/auth/api-keys", { name }); setCreated(k); setName(""); load(); } catch (e) { toast(e.message, "err"); } }
+  async function del(id) { if (!confirm("Delete key?")) return; try { await api("DELETE", `/auth/api-keys/${id}`); load(); } catch (e) { toast(e.message, "err"); } }
+  return (
+    <div>
+      <form className="card card-pad row" style={{ marginBottom: 16, gap: 10 }} onSubmit={create}>
+        <input placeholder="key name (ci, monitoring)" value={name} onChange={e => setName(e.target.value)} required style={{ flex: 1 }} />
+        <button className="btn btn-primary"><Icon name="plus" width="14" height="14" />Create key</button>
+      </form>
+      {created && (
+        <div className="card card-pad" style={{ marginBottom: 16, borderColor: "var(--warning)" }}>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>Copy this token now — shown once:</div>
+          <div className="mono console" style={{ maxHeight: "none", wordBreak: "break-all" }}>{created.token}</div>
+          <button className="btn btn-sm" style={{ marginTop: 10 }} onClick={() => setCreated(null)}>Dismiss</button>
+        </div>
+      )}
+      <div className="card">
+        <table>
+          <thead><tr><th>Name</th><th>Created</th><th>Last used</th><th></th></tr></thead>
+          <tbody>
+            {keys.length === 0 && <tr><td colSpan="4" className="empty">no keys</td></tr>}
+            {keys.map(k => <tr key={k.id}><td style={{ fontWeight: 550 }}>{k.name}</td><td className="mono" style={{ fontSize: 12 }}>{k.created_at}</td><td className="mono" style={{ fontSize: 12, color: "var(--text-faint)" }}>{k.last_used_at || "never"}</td><td style={{ textAlign: "right" }}><button className="btn btn-sm btn-danger" onClick={() => del(k.id)}>Delete</button></td></tr>)}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ============ Audit ============ */
+function AuditPage() {
+  const toast = useToast();
+  const [rows, setRows] = useState([]);
+  async function load() { try { setRows(await api("GET", "/audit")); } catch (e) { toast(e.message, "err"); } }
+  useEffect(() => { load(); const id = setInterval(load, 10000); return () => clearInterval(id); }, []);
+  return (
+    <div className="card">
+      <table>
+        <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Target</th></tr></thead>
         <tbody>
-          {rows.length === 0 && <tr><td colSpan="4" className="p-3 text-slate-500">No globals set.</td></tr>}
-          {rows.map(g => (
-            <tr key={g.name} className="border-t border-slate-100 dark:border-slate-800">
-              <td className="p-3 mono">{g.name}</td>
-              <td className="p-3 mono">{g.value}</td>
-              <td className="p-3 mono text-xs">{g.updated_at}</td>
-              <td className="p-3 text-right"><button onClick={() => del(g.name)} className="text-red-600 hover:underline text-xs">delete</button></td>
-            </tr>
-          ))}
+          {rows.length === 0 && <tr><td colSpan="4" className="empty">no audit entries</td></tr>}
+          {rows.map(e => <tr key={e.id}><td className="mono" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{e.ts}</td><td className="mono" style={{ fontSize: 12 }}>{e.user_id || "system"}</td><td><span className="tag">{e.action}</span></td><td className="mono" style={{ fontSize: 12 }}>{e.target_type}{e.target_id ? ":" + e.target_id.slice(0, 8) + "…" : ""}</td></tr>)}
         </tbody>
       </table>
     </div>
   );
 }
+
+/* ============ Login ============ */
+function Login({ onLoggedIn }) {
+  const [u, setU] = useState("admin");
+  const [p, setP] = useState("");
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false);
+  async function submit(e) {
+    e.preventDefault(); setErr(null); setBusy(true);
+    try {
+      const r = await fetch(API + "/auth/login", { method: "POST", headers: { "content-type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ username: u, password: p }) });
+      if (!r.ok) { setErr("invalid credentials"); setBusy(false); return; }
+      onLoggedIn(await r.json());
+    } catch (e) { setErr(e.message); setBusy(false); }
+  }
+  return (
+    <div className="login-wrap">
+      <form className="card card-pad" style={{ width: 360 }} onSubmit={submit}>
+        <div className="brand" style={{ padding: "0 0 18px" }}>
+          <div className="logo">⚙</div>
+          <div><h1>rusty-sched</h1><div className="ver">job scheduler</div></div>
+        </div>
+        <div className="field" style={{ marginBottom: 12 }}><label>Username</label><input value={u} onChange={e => setU(e.target.value)} required /></div>
+        <div className="field" style={{ marginBottom: 16 }}><label>Password</label><input type="password" value={p} onChange={e => setP(e.target.value)} required /></div>
+        <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center" }} disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
+        {err && <div className="alert-err" style={{ marginTop: 12 }}>{err}</div>}
+        <p style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 16 }}>Default user <span className="mono">admin</span>. Password from <span className="mono">RSCHED_ADMIN_PASSWORD</span> or auto-generated (see server logs).</p>
+      </form>
+    </div>
+  );
+}
+
+/* ============ App shell ============ */
+const NAV = [
+  { sec: "Monitor" },
+  { id: "dashboard", label: "Dashboard", icon: "dashboard" },
+  { id: "jobs", label: "Jobs", icon: "jobs" },
+  { id: "runs", label: "Runs", icon: "runs" },
+  { id: "dag", label: "DAG", icon: "dag" },
+  { sec: "Configure" },
+  { id: "resources", label: "Resources", icon: "resources" },
+  { id: "globals", label: "Globals", icon: "globals" },
+  { sec: "Admin", admin: true },
+  { id: "users", label: "Users", icon: "users", admin: true },
+  { id: "apikeys", label: "API keys", icon: "keys" },
+  { id: "audit", label: "Audit log", icon: "audit", admin: true },
+];
+const TITLES = { dashboard: "Dashboard", jobs: "Jobs", runs: "Run history", dag: "Workflow DAG", resources: "Virtual resources", globals: "Global variables", users: "Users", apikeys: "API keys", audit: "Audit log" };
 
 function App() {
   const [me, setMe] = useState(undefined);
-  const [tab, setTab] = useState('jobs');
+  const [tab, setTab] = useState("dashboard");
+  const [theme, setTheme] = useTheme();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   async function checkAuth() {
-    try {
-      const resp = await fetch(API + "/auth/me", { credentials: "same-origin" });
-      if (resp.status === 401) { setMe(null); return; }
-      if (!resp.ok) throw new Error("auth check failed");
-      setMe(await resp.json());
-    } catch (e) {
-      setMe(null);
-    }
+    try { const r = await fetch(API + "/auth/me", { credentials: "same-origin" }); if (r.status === 401) return setMe(null); setMe(await r.json()); }
+    catch { setMe(null); }
   }
-
-  async function logout() {
-    await fetch(API + "/auth/logout", { method: "POST", credentials: "same-origin" });
-    setMe(null);
-  }
-
+  async function logout() { await fetch(API + "/auth/logout", { method: "POST", credentials: "same-origin" }); setMe(null); }
   useEffect(() => { checkAuth(); }, []);
 
-  if (me === undefined) {
-    return <div className="min-h-screen flex items-center justify-center text-slate-500">loading…</div>;
-  }
-  if (me === null) {
-    return <Login onLoggedIn={(u) => setMe(u)} />;
-  }
+  if (me === undefined) return <div className="login-wrap" style={{ color: "var(--text-dim)" }}>loading…</div>;
+  if (me === null) return <Login onLoggedIn={setMe} />;
+
+  const isAdmin = me.role === "admin";
+  const page = { dashboard: <Dashboard go={setTab} />, jobs: <JobsPage />, runs: <RunsPage />, dag: <DagPage />, resources: <ResourcesPage />, globals: <GlobalsPage />, users: <UsersPage />, apikeys: <ApiKeysPage />, audit: <AuditPage /> }[tab];
 
   return (
-    <>
-      <HeaderWithUser me={me} onLogout={logout} tab={tab} setTab={setTab} />
-      <div className="max-w-6xl mx-auto px-6 py-6">
-        {tab === 'jobs' && <JobsPage />}
-        {tab === 'dag' && <DagPage />}
-        {tab === 'resources' && <ResourcesPage />}
-        {tab === 'globals' && <GlobalsPage />}
-        {tab === 'apikeys' && <ApiKeysPage />}
-        {tab === 'users' && me.role === 'admin' && <UsersPage />}
-        {tab === 'audit' && me.role === 'admin' && <AuditPage />}
+    <div className="app">
+      <aside className="sidebar">
+        <div className="brand"><div className="logo">⚙</div><div><h1>rusty-sched</h1><div className="ver">v2 · cronicle-model</div></div></div>
+        <nav className="nav">
+          {NAV.map((n, i) => {
+            if (n.sec) { if (n.admin && !isAdmin) return null; return <div key={i} className="nav-section">{n.sec}</div>; }
+            if (n.admin && !isAdmin) return null;
+            return (
+              <button key={n.id} className={"nav-item" + (tab === n.id ? " active" : "")} onClick={() => setTab(n.id)}>
+                <Icon name={n.icon} /> {n.label}
+              </button>
+            );
+          })}
+        </nav>
+        <div className="sidebar-foot">
+          <a href="https://github.com/jdp5949/rusty-sched" className="nav-item" style={{ color: "var(--text-dim)" }}>★ GitHub</a>
+        </div>
+      </aside>
+      <div className="main">
+        <header className="topbar">
+          <span className="page-title">{TITLES[tab]}</span>
+          <span className="spacer" />
+          <ThemePicker theme={theme} setTheme={setTheme} />
+          <div className="dropdown">
+            <button className="btn btn-sm" onClick={() => setMenuOpen(o => !o)}>{me.username} <span className="tag">{me.role}</span></button>
+            {menuOpen && <div className="menu"><button onClick={logout}><Icon name="logout" width="15" height="15" /> Sign out</button></div>}
+          </div>
+        </header>
+        <div className="content">{page}</div>
       </div>
-    </>
+    </div>
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+ReactDOM.createRoot(document.getElementById("root")).render(<ToastHost><App /></ToastHost>);
 </script>
 </body>
 </html>

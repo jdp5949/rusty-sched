@@ -1,29 +1,35 @@
 # rusty-sched
 
-Autosys-class job scheduler. Single Rust binary. Zero external deps. HA cluster. Cross-platform.
+Autosys-class job scheduler with a Cronicle-style web UI. Single Rust binary,
+embedded SQLite, zero external deps. Cross-platform.
 
-> **Status:** pre-alpha / scaffold. See [v1 design spec](docs/specs/2026-05-18-rusty-sched-design.md) and [implementation plan](docs/plans/2026-05-18-rusty-sched-plan.md).
+> **Status:** v2 (in progress) — Cronicle-model simplification. One server
+> process runs the scheduler, REST API, web UI and SQLite. See the
+> [v2 design doc](docs/superpowers/specs/2026-06-06-v2-cronicle-simplify-design.md).
+>
+> Raft HA, gRPC remote agents and Postgres were **removed in v2** to keep the
+> project simple to run and maintain (Cronicle model). The `Executor` trait
+> remains the seam if simple HTTP satellite workers are added later.
 
 ## Why
 
-- Cron: no monitoring, no deps, no HA, no UI.
-- Airflow: too complex for "just run things on a schedule."
+- Cron: no monitoring, no UI, no dependencies/retries/SLAs.
+- Airflow: too heavy for "just run things on a schedule."
 - Autosys / Control-M: $$$, closed source, heavy ops.
-- rusty-sched: one binary, web UI, agents on every host, 3-node Raft HA, runs anything (shell / ETL / app), with retries, SLAs, dependencies, calendars, alerts, audit log.
+- rusty-sched: one binary, polished web UI (4 themes), runs anything
+  (shell / ETL / app), with retries, SLAs, dependencies, calendars, virtual
+  resources, JIL import, conditions DSL, alerts and an audit log.
 
-## Quickstart (target — once M10 ships)
+## Quickstart
 
 ```bash
-# install
+# install (cross-platform release binaries)
 curl -fsSL https://github.com/jdp5949/rusty-sched/releases/latest/download/install.sh | sh
 
-# 3-node cluster
-rusty-sched server --peers node1:7000,node2:7000,node3:7000
+# run the server (SQLite auto-created in the OS data dir)
+rusty-sched server
 
-# agent on every worker host
-rusty-sched agent --servers node1:7000,node2:7000,node3:7000
-
-# open http://localhost:8080
+# open http://localhost:8080  (default user: admin)
 ```
 
 ## Build from source
