@@ -1058,8 +1058,8 @@ async fn import_jil(
     crate::auth::RequireWrite(ctx): crate::auth::RequireWrite,
     Json(req): Json<JilReq>,
 ) -> Result<Json<Vec<JilResult>>, ApiError> {
-    let blocks =
-        rsched_jil::parse(&req.text).map_err(|e| ApiError::Validation(format!("JIL parse: {e}")))?;
+    let blocks = rsched_jil::parse(&req.text)
+        .map_err(|e| ApiError::Validation(format!("JIL parse: {e}")))?;
     let now = chrono::Utc::now();
     let mut results = Vec::new();
     for block in blocks {
