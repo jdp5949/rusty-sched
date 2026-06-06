@@ -2,9 +2,7 @@
 resolver = "2"
 members = [
     "crates/rsched-core",
-    "crates/rsched-proto",
     "crates/rsched-store",
-    "crates/rsched-raft",
     "crates/rsched-scheduler",
     "crates/rsched-alert",
     "crates/rsched-api",
