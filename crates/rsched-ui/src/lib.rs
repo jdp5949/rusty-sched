@@ -62,7 +62,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(r.status(), 200);
-        let bytes = axum::body::to_bytes(r.into_body(), 65536).await.unwrap();
+        let bytes = axum::body::to_bytes(r.into_body(), 4 * 1024 * 1024)
+            .await
+            .unwrap();
         let s = String::from_utf8_lossy(&bytes);
         assert!(s.contains("rusty-sched"));
     }
