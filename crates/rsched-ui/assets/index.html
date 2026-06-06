@@ -509,42 +509,200 @@ function JobCard({ job, onChange }) {
   );
 }
 
-/* ============ New job modal ============ */
-function NewJobModal({ onClose, onCreated }) {
+/* ============ Job builder (GUI → validated JSON) ============ */
+const SHELLS = ["auto", "sh", "bash", "cmd", "powershell", "none", "plugin"];
+const TRIGGER_KINDS = ["cron", "interval", "one_shot", "manual", "file", "webhook", "condition"];
+const FILE_EVENTS = ["any", "create", "modify", "delete"];
+
+function blankBuilder() {
+  return {
+    name: "", cmd: "echo hello", shell: "auto", cwd: "",
+    triggerKind: "cron",
+    cron: { expr: "*/5 * * * *", timezone: "" },
+    interval: { every: 300 },
+    oneshot: { at: "" },
+    file: { path: "", event: "any" },
+    webhook: { slug: "", secret: "" },
+    condition: { expr: "" },
+    args: [], env: [],
+    timeout_secs: 0, sla_secs: 0,
+    retry: { max_attempts: 1, backoffKind: "none", delay_secs: 30, base_secs: 10, max_secs: 300 },
+    misfire: "fire_once",
+  };
+}
+
+// Pure: builder state -> job request object (matches POST /jobs).
+function buildJob(f) {
+  let trigger;
+  switch (f.triggerKind) {
+    case "cron": trigger = { kind: "cron", expr: f.cron.expr, ...(f.cron.timezone ? { timezone: f.cron.timezone } : {}) }; break;
+    case "interval": trigger = { kind: "interval", every: Number(f.interval.every) || 0, start_at: null }; break;
+    case "one_shot": trigger = { kind: "one_shot", at: f.oneshot.at ? new Date(f.oneshot.at).toISOString() : "" }; break;
+    case "file": trigger = { kind: "file", path: f.file.path, event: f.file.event }; break;
+    case "webhook": trigger = { kind: "webhook", slug: f.webhook.slug, secret: f.webhook.secret }; break;
+    case "condition": trigger = { kind: "condition", expr: f.condition.expr }; break;
+    default: trigger = { kind: "manual" };
+  }
+  let backoff;
+  if (f.retry.backoffKind === "fixed") backoff = { kind: "fixed", delay_secs: Number(f.retry.delay_secs) || 0 };
+  else if (f.retry.backoffKind === "exponential") backoff = { kind: "exponential", base_secs: Number(f.retry.base_secs) || 0, max_secs: Number(f.retry.max_secs) || 0 };
+  else backoff = { kind: "none" };
+  const env = {};
+  f.env.forEach(({ k, v }) => { if (k) env[k] = v; });
+  return {
+    name: f.name, trigger, cmd: f.cmd,
+    args: f.args.filter(a => a !== ""),
+    env, cwd: f.cwd || null, shell: f.shell,
+    timeout_secs: Number(f.timeout_secs) || 0,
+    sla_secs: Number(f.sla_secs) || 0,
+    retry: { max_attempts: Number(f.retry.max_attempts) || 1, backoff },
+    misfire: f.misfire,
+  };
+}
+
+// Pure: returns { field: message } for any invalid input.
+function validateBuilder(f) {
+  const e = {};
+  if (!f.name.trim()) e.name = "name required";
+  else if (!/^[\w.\-:]+$/.test(f.name)) e.name = "letters, digits, . _ - : only";
+  if (!f.cmd.trim()) e.cmd = "command required";
+  if (f.triggerKind === "cron") {
+    const parts = f.cron.expr.trim().split(/\s+/);
+    if (!f.cron.expr.trim()) e.trigger = "cron expression required";
+    else if (parts.length !== 5 && parts.length !== 6) e.trigger = "cron needs 5 or 6 fields";
+  } else if (f.triggerKind === "interval") {
+    if (!(Number(f.interval.every) > 0)) e.trigger = "interval must be > 0 seconds";
+  } else if (f.triggerKind === "one_shot") {
+    if (!f.oneshot.at) e.trigger = "pick a date/time";
+  } else if (f.triggerKind === "file") {
+    if (!f.file.path.trim()) e.trigger = "file path required";
+  } else if (f.triggerKind === "webhook") {
+    if (f.webhook.slug.length < 8) e.trigger = "slug must be ≥ 8 chars";
+    else if (f.webhook.secret.length < 16) e.trigger = "secret must be ≥ 16 chars";
+  } else if (f.triggerKind === "condition") {
+    if (!f.condition.expr.trim()) e.trigger = "condition expression required";
+  }
+  const ma = Number(f.retry.max_attempts);
+  if (!(ma >= 1 && ma <= 100)) e.retry = "max attempts 1–100";
+  if (Number(f.timeout_secs) < 0) e.timeout = "timeout ≥ 0";
+  if (Number(f.sla_secs) < 0) e.sla = "sla ≥ 0";
+  const seen = new Set();
+  for (const { k } of f.env) { if (k && seen.has(k)) { e.env = `duplicate env key "${k}"`; break; } if (k) seen.add(k); }
+  return e;
+}
+
+function JobBuilder({ onClose, onCreated }) {
   const toast = useToast();
-  const [f, setF] = useState({ name: "", kind: "cron", expr: "*/5 * * * *", cmd: "echo hello", timeout_secs: 0 });
+  const [f, setF] = useState(blankBuilder);
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setF(x => ({ ...x, [k]: v }));
-  async function submit(e) {
-    e.preventDefault(); setBusy(true);
-    let trigger;
-    if (f.kind === "cron") trigger = { kind: "cron", expr: f.expr };
-    else if (f.kind === "manual") trigger = { kind: "manual" };
-    else trigger = { kind: "cron", expr: f.expr };
-    try {
-      await api("POST", "/jobs", { name: f.name, trigger, cmd: f.cmd, timeout_secs: Number(f.timeout_secs) || 0 });
-      toast(`created ${f.name}`); onCreated(); onClose();
-    } catch (e) { toast(e.message, "err"); setBusy(false); }
+  const setIn = (group, k, v) => setF(x => ({ ...x, [group]: { ...x[group], [k]: v } }));
+
+  const job = buildJob(f);
+  const errs = validateBuilder(f);
+  const valid = Object.keys(errs).length === 0;
+  const json = JSON.stringify(job, null, 2);
+
+  // env / args row helpers
+  const addEnv = () => set("env", [...f.env, { k: "", v: "" }]);
+  const setEnv = (i, key, val) => set("env", f.env.map((r, j) => j === i ? { ...r, [key]: val } : r));
+  const delEnv = i => set("env", f.env.filter((_, j) => j !== i));
+  const addArg = () => set("args", [...f.args, ""]);
+  const setArg = (i, val) => set("args", f.args.map((a, j) => j === i ? val : a));
+  const delArg = i => set("args", f.args.filter((_, j) => j !== i));
+
+  async function create() {
+    if (!valid) return;
+    setBusy(true);
+    try { await api("POST", "/jobs", job); toast(`created ${f.name}`); onCreated(); onClose(); }
+    catch (e) { toast(e.message, "err"); setBusy(false); }
   }
+  function copy() { navigator.clipboard.writeText(json).then(() => toast("JSON copied")); }
+
+  const Err = ({ k }) => errs[k] ? <span style={{ color: "var(--danger)", fontSize: 11.5 }}>{errs[k]}</span> : null;
+
   return (
     <div className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && onClose()}>
-      <form className="modal" style={{ maxWidth: 520 }} onSubmit={submit}>
-        <div className="modal-head row"><span style={{ fontWeight: 650, fontSize: 15 }}>New job</span><span style={{ flex: 1 }} /><button type="button" className="icon-btn" onClick={onClose}><Icon name="close" /></button></div>
-        <div className="modal-body grid" style={{ gap: 14 }}>
-          <div className="field"><label>Name</label><input value={f.name} onChange={e => set("name", e.target.value)} required placeholder="nightly-etl" /></div>
-          <div className="row" style={{ gap: 12 }}>
-            <div className="field" style={{ flex: 1 }}><label>Trigger</label>
-              <select value={f.kind} onChange={e => set("kind", e.target.value)}>
-                <option value="cron">cron</option><option value="manual">manual</option>
-              </select>
+      <div className="modal" style={{ maxWidth: 920 }}>
+        <div className="modal-head row"><span style={{ fontWeight: 650, fontSize: 15 }}>Job builder</span><span style={{ flex: 1 }} /><button className="icon-btn" onClick={onClose}><Icon name="close" /></button></div>
+        <div className="modal-body" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+          {/* ---- form ---- */}
+          <div className="grid" style={{ gap: 12, alignContent: "start" }}>
+            <div className="field"><label>Name <Err k="name" /></label><input value={f.name} onChange={e => set("name", e.target.value)} placeholder="nightly-etl" /></div>
+            <div className="field"><label>Command <Err k="cmd" /></label><input className="mono" value={f.cmd} onChange={e => set("cmd", e.target.value)} /></div>
+            <div className="row" style={{ gap: 10 }}>
+              <div className="field" style={{ flex: 1 }}><label>Shell</label><select value={f.shell} onChange={e => set("shell", e.target.value)}>{SHELLS.map(s => <option key={s}>{s}</option>)}</select></div>
+              <div className="field" style={{ flex: 1 }}><label>Working dir</label><input value={f.cwd} onChange={e => set("cwd", e.target.value)} placeholder="(optional)" /></div>
             </div>
-            {f.kind === "cron" && <div className="field" style={{ flex: 2 }}><label>Cron expression</label><input className="mono" value={f.expr} onChange={e => set("expr", e.target.value)} required /></div>}
+
+            <div className="field"><label>Trigger <Err k="trigger" /></label>
+              <select value={f.triggerKind} onChange={e => set("triggerKind", e.target.value)}>{TRIGGER_KINDS.map(t => <option key={t} value={t}>{t}</option>)}</select>
+            </div>
+            {f.triggerKind === "cron" && (
+              <div className="row" style={{ gap: 10 }}>
+                <div className="field" style={{ flex: 2 }}><label>Cron expression</label><input className="mono" value={f.cron.expr} onChange={e => setIn("cron", "expr", e.target.value)} /></div>
+                <div className="field" style={{ flex: 1 }}><label>Timezone</label><input value={f.cron.timezone} onChange={e => setIn("cron", "timezone", e.target.value)} placeholder="UTC" /></div>
+              </div>
+            )}
+            {f.triggerKind === "interval" && <div className="field"><label>Every (seconds)</label><input type="number" min="1" value={f.interval.every} onChange={e => setIn("interval", "every", e.target.value)} /></div>}
+            {f.triggerKind === "one_shot" && <div className="field"><label>Fire at</label><input type="datetime-local" value={f.oneshot.at} onChange={e => setIn("oneshot", "at", e.target.value)} /></div>}
+            {f.triggerKind === "file" && (
+              <div className="row" style={{ gap: 10 }}>
+                <div className="field" style={{ flex: 2 }}><label>Path</label><input className="mono" value={f.file.path} onChange={e => setIn("file", "path", e.target.value)} placeholder="/data/incoming" /></div>
+                <div className="field" style={{ flex: 1 }}><label>Event</label><select value={f.file.event} onChange={e => setIn("file", "event", e.target.value)}>{FILE_EVENTS.map(ev => <option key={ev}>{ev}</option>)}</select></div>
+              </div>
+            )}
+            {f.triggerKind === "webhook" && (
+              <div className="row" style={{ gap: 10 }}>
+                <div className="field" style={{ flex: 1 }}><label>Slug (≥8)</label><input className="mono" value={f.webhook.slug} onChange={e => setIn("webhook", "slug", e.target.value)} /></div>
+                <div className="field" style={{ flex: 1 }}><label>Secret (≥16)</label><input className="mono" value={f.webhook.secret} onChange={e => setIn("webhook", "secret", e.target.value)} /></div>
+              </div>
+            )}
+            {f.triggerKind === "condition" && <div className="field"><label>Condition expr</label><input className="mono" value={f.condition.expr} onChange={e => setIn("condition", "expr", e.target.value)} placeholder="success(jobA) and value(IS_RUN_DAY)" /></div>}
+
+            <div className="field"><label>Arguments</label>
+              {f.args.map((a, i) => <div key={i} className="row" style={{ gap: 6, marginBottom: 6 }}><input className="mono" style={{ flex: 1 }} value={a} onChange={e => setArg(i, e.target.value)} /><button className="icon-btn" onClick={() => delArg(i)}><Icon name="trash" /></button></div>)}
+              <button className="btn btn-sm" onClick={addArg}><Icon name="plus" width="13" height="13" />Add arg</button>
+            </div>
+            <div className="field"><label>Environment <Err k="env" /></label>
+              {f.env.map((r, i) => <div key={i} className="row" style={{ gap: 6, marginBottom: 6 }}><input style={{ flex: 1 }} placeholder="KEY" value={r.k} onChange={e => setEnv(i, "k", e.target.value)} /><input className="mono" style={{ flex: 1 }} placeholder="value" value={r.v} onChange={e => setEnv(i, "v", e.target.value)} /><button className="icon-btn" onClick={() => delEnv(i)}><Icon name="trash" /></button></div>)}
+              <button className="btn btn-sm" onClick={addEnv}><Icon name="plus" width="13" height="13" />Add var</button>
+            </div>
+
+            <div className="row" style={{ gap: 10 }}>
+              <div className="field" style={{ flex: 1 }}><label>Timeout (s, 0=∞) <Err k="timeout" /></label><input type="number" min="0" value={f.timeout_secs} onChange={e => set("timeout_secs", e.target.value)} /></div>
+              <div className="field" style={{ flex: 1 }}><label>SLA (s) <Err k="sla" /></label><input type="number" min="0" value={f.sla_secs} onChange={e => set("sla_secs", e.target.value)} /></div>
+            </div>
+            <div className="row" style={{ gap: 10 }}>
+              <div className="field" style={{ flex: 1 }}><label>Max attempts <Err k="retry" /></label><input type="number" min="1" max="100" value={f.retry.max_attempts} onChange={e => setIn("retry", "max_attempts", e.target.value)} /></div>
+              <div className="field" style={{ flex: 1 }}><label>Backoff</label><select value={f.retry.backoffKind} onChange={e => setIn("retry", "backoffKind", e.target.value)}><option value="none">none</option><option value="fixed">fixed</option><option value="exponential">exponential</option></select></div>
+            </div>
+            {f.retry.backoffKind === "fixed" && <div className="field" style={{ maxWidth: 200 }}><label>Delay (s)</label><input type="number" min="0" value={f.retry.delay_secs} onChange={e => setIn("retry", "delay_secs", e.target.value)} /></div>}
+            {f.retry.backoffKind === "exponential" && (
+              <div className="row" style={{ gap: 10 }}>
+                <div className="field" style={{ flex: 1 }}><label>Base (s)</label><input type="number" min="0" value={f.retry.base_secs} onChange={e => setIn("retry", "base_secs", e.target.value)} /></div>
+                <div className="field" style={{ flex: 1 }}><label>Max (s)</label><input type="number" min="0" value={f.retry.max_secs} onChange={e => setIn("retry", "max_secs", e.target.value)} /></div>
+              </div>
+            )}
+            <div className="field"><label>Misfire policy</label><select value={f.misfire} onChange={e => set("misfire", e.target.value)}><option value="fire_once">fire_once</option><option value="skip">skip</option><option value="fire_all_missed">fire_all_missed</option></select></div>
           </div>
-          <div className="field"><label>Command</label><input className="mono" value={f.cmd} onChange={e => set("cmd", e.target.value)} required /></div>
-          <div className="field" style={{ maxWidth: 160 }}><label>Timeout (s, 0=∞)</label><input type="number" min="0" value={f.timeout_secs} onChange={e => set("timeout_secs", e.target.value)} /></div>
+
+          {/* ---- live JSON ---- */}
+          <div className="grid" style={{ gap: 10, alignContent: "start" }}>
+            <div className="row"><label style={{ fontSize: 12, color: "var(--text-dim)", fontWeight: 550 }}>Generated job JSON</label><span className="spacer" style={{ flex: 1 }} />
+              <span className={"pill " + (valid ? "success" : "failed")}>{valid ? "valid" : Object.keys(errs).length + " issue(s)"}</span>
+            </div>
+            <pre className="console" style={{ maxHeight: 420, margin: 0, whiteSpace: "pre" }}>{json}</pre>
+            {!valid && (
+              <div className="alert-err">
+                <ul style={{ margin: 0, paddingLeft: 18 }}>{Object.entries(errs).map(([k, v]) => <li key={k}>{v}</li>)}</ul>
+              </div>
+            )}
+            <button className="btn btn-sm" onClick={copy} style={{ alignSelf: "start" }}><Icon name="keys" width="13" height="13" />Copy JSON</button>
+          </div>
         </div>
-        <div className="modal-foot"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn btn-primary" disabled={busy}>{busy ? "Creating…" : "Create job"}</button></div>
-      </form>
+        <div className="modal-foot"><button className="btn" onClick={onClose}>Cancel</button><button className="btn btn-primary" disabled={!valid || busy} onClick={create}>{busy ? "Creating…" : "Create job"}</button></div>
+      </div>
     </div>
   );
 }
@@ -585,7 +743,7 @@ function JobsPage() {
   const shown = jobs && filter ? jobs.filter(j => (j.name + j.cmd).toLowerCase().includes(filter.toLowerCase())) : jobs;
   return (
     <div>
-      {creating && <NewJobModal onClose={() => setCreating(false)} onCreated={load} />}
+      {creating && <JobBuilder onClose={() => setCreating(false)} onCreated={load} />}
       <div className="row" style={{ marginBottom: 16 }}>
         <input style={{ width: 280 }} placeholder="Filter jobs…" value={filter} onChange={e => setFilter(e.target.value)} />
         <span className="spacer" style={{ flex: 1 }} />
