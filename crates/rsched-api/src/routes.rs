@@ -58,6 +58,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/runs/:id/logs", get(get_run_logs))
         .route("/api/v1/runs/:id/logs/ws", get(ws_run_logs))
         .route("/api/v1/stats/jobs/:id", get(job_stats))
+        .route("/api/v1/stats/summary", get(stats_summary))
         // Global variables (used by Autosys value() conditions + sendevent SET_GLOBAL).
         .route("/api/v1/globals", get(list_globals).post(set_global))
         .route(
@@ -1024,6 +1025,12 @@ async fn job_stats(
         Ok(stats) => Json(stats).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
+}
+
+async fn stats_summary(
+    State(s): State<AppState>,
+) -> Result<Json<rsched_store::DashboardSummary>, ApiError> {
+    Ok(Json(s.store.dashboard_summary().await?))
 }
 
 #[cfg(test)]
