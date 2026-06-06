@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+description = "Autosys-class job scheduler with a Cronicle-style web UI — single binary, embedded SQLite."
 
 [[bin]]
 name = "rusty-sched"
