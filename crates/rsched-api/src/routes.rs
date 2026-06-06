@@ -59,6 +59,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/runs/:id/logs/ws", get(ws_run_logs))
         .route("/api/v1/stats/jobs/:id", get(job_stats))
         .route("/api/v1/stats/summary", get(stats_summary))
+        .route("/api/v1/jil", post(import_jil))
         // Global variables (used by Autosys value() conditions + sendevent SET_GLOBAL).
         .route("/api/v1/globals", get(list_globals).post(set_global))
         .route(
@@ -1031,6 +1032,161 @@ async fn stats_summary(
     State(s): State<AppState>,
 ) -> Result<Json<rsched_store::DashboardSummary>, ApiError> {
     Ok(Json(s.store.dashboard_summary().await?))
+}
+
+#[derive(Debug, Deserialize)]
+struct JilReq {
+    text: String,
+}
+
+#[derive(Debug, Serialize)]
+struct JilResult {
+    action: String,
+    name: String,
+    ok: bool,
+    id: Option<String>,
+    message: Option<String>,
+    warnings: Vec<String>,
+}
+
+/// Import an Autosys JIL document. Supports `insert_job` and `delete_job`
+/// blocks; `update_job` is reported as unsupported-via-import (use the CLI or
+/// edit the job in the UI). Each block yields an independent result so a
+/// single bad block does not abort the rest.
+async fn import_jil(
+    State(s): State<AppState>,
+    crate::auth::RequireWrite(ctx): crate::auth::RequireWrite,
+    Json(req): Json<JilReq>,
+) -> Result<Json<Vec<JilResult>>, ApiError> {
+    let blocks =
+        rsched_jil::parse(&req.text).map_err(|e| ApiError::Validation(format!("JIL parse: {e}")))?;
+    let now = chrono::Utc::now();
+    let mut results = Vec::new();
+    for block in blocks {
+        match block {
+            rsched_jil::JilBlock::Insert(spec) => {
+                let name = spec.name.clone();
+                match spec.into_job() {
+                    Ok(out) => {
+                        let mut job = out.job;
+                        job.next_fire_at = match &job.trigger {
+                            Trigger::Cron { expr, timezone } => {
+                                next_fire(expr, timezone.as_deref(), now).ok()
+                            }
+                            Trigger::Interval { every, start_at } => Some(
+                                start_at.unwrap_or(
+                                    now + chrono::Duration::from_std(*every).unwrap_or_default(),
+                                ),
+                            ),
+                            Trigger::OneShot { at } => Some(*at),
+                            _ => None,
+                        };
+                        let res = match job.validate() {
+                            Err(e) => Err(e.to_string()),
+                            Ok(()) => s
+                                .store
+                                .jobs()
+                                .insert(&job)
+                                .await
+                                .map_err(|e| e.to_string()),
+                        };
+                        match res {
+                            Ok(()) => {
+                                let _ = s
+                                    .store
+                                    .audit()
+                                    .record(
+                                        Some(&ctx.user_id.to_string()),
+                                        "jil.insert",
+                                        "job",
+                                        Some(&job.id.to_string()),
+                                        None,
+                                    )
+                                    .await;
+                                results.push(JilResult {
+                                    action: "insert".into(),
+                                    name,
+                                    ok: true,
+                                    id: Some(job.id.to_string()),
+                                    message: None,
+                                    warnings: out.warnings,
+                                });
+                            }
+                            Err(msg) => results.push(JilResult {
+                                action: "insert".into(),
+                                name,
+                                ok: false,
+                                id: None,
+                                message: Some(msg),
+                                warnings: out.warnings,
+                            }),
+                        }
+                    }
+                    Err(e) => results.push(JilResult {
+                        action: "insert".into(),
+                        name,
+                        ok: false,
+                        id: None,
+                        message: Some(e.to_string()),
+                        warnings: Vec::new(),
+                    }),
+                }
+            }
+            rsched_jil::JilBlock::Delete(name) => {
+                let r = match s.store.jobs().get_by_name(&name).await {
+                    Ok(job) => match s.store.jobs().delete(job.id).await {
+                        Ok(()) => {
+                            let _ = s
+                                .store
+                                .audit()
+                                .record(
+                                    Some(&ctx.user_id.to_string()),
+                                    "jil.delete",
+                                    "job",
+                                    Some(&job.id.to_string()),
+                                    None,
+                                )
+                                .await;
+                            JilResult {
+                                action: "delete".into(),
+                                name,
+                                ok: true,
+                                id: Some(job.id.to_string()),
+                                message: None,
+                                warnings: Vec::new(),
+                            }
+                        }
+                        Err(e) => JilResult {
+                            action: "delete".into(),
+                            name,
+                            ok: false,
+                            id: None,
+                            message: Some(e.to_string()),
+                            warnings: Vec::new(),
+                        },
+                    },
+                    Err(_) => JilResult {
+                        action: "delete".into(),
+                        name,
+                        ok: false,
+                        id: None,
+                        message: Some("no such job".into()),
+                        warnings: Vec::new(),
+                    },
+                };
+                results.push(r);
+            }
+            rsched_jil::JilBlock::Update(name, _) => results.push(JilResult {
+                action: "update".into(),
+                name,
+                ok: false,
+                id: None,
+                message: Some("update_job via import not supported yet — edit the job in the UI or use the CLI".into()),
+                warnings: Vec::new(),
+            }),
+        }
+    }
+    Ok(Json(results))
 }
 
 #[cfg(test)]

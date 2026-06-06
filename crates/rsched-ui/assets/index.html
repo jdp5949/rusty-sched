@@ -1059,6 +1059,66 @@ function Login({ onLoggedIn }) {
   );
 }
 
+/* ============ JIL import ============ */
+const JIL_SAMPLE = `/* Paste Autosys JIL. insert_job + delete_job supported. */
+insert_job: nightly_load   job_type: c
+command: /opt/etl/run.sh --full
+machine: localhost
+start_times: "02:00"
+n_retrys: 2
+alarm_if_fail: 1
+`;
+function JilImportPage() {
+  const toast = useToast();
+  const [text, setText] = useState(JIL_SAMPLE);
+  const [busy, setBusy] = useState(false);
+  const [results, setResults] = useState(null);
+  async function run() {
+    setBusy(true);
+    try {
+      const r = await api("POST", "/jil", { text });
+      setResults(r);
+      const ok = r.filter(x => x.ok).length;
+      toast(`${ok}/${r.length} block(s) applied`, ok === r.length ? undefined : "err");
+    } catch (e) { toast(e.message, "err"); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div className="grid" style={{ gap: 16 }}>
+      <div className="card card-pad">
+        <div className="row" style={{ marginBottom: 10 }}>
+          <span style={{ fontWeight: 650 }}>Import Autosys JIL</span>
+          <span style={{ color: "var(--text-faint)", fontSize: 12.5 }}>insert_job + delete_job</span>
+          <span className="spacer" style={{ flex: 1 }} />
+          <button className="btn btn-primary" disabled={busy} onClick={run}>{busy ? "Importing…" : "Import"}</button>
+        </div>
+        <textarea className="mono" style={{ width: "100%", height: 260, resize: "vertical", lineHeight: 1.5 }} value={text} onChange={e => setText(e.target.value)} spellCheck={false} />
+      </div>
+      {results && (
+        <div className="card">
+          <table>
+            <thead><tr><th>Action</th><th>Job</th><th>Result</th><th>Detail</th></tr></thead>
+            <tbody>
+              {results.length === 0 && <tr><td colSpan="4" className="empty">no blocks parsed</td></tr>}
+              {results.map((r, i) => (
+                <tr key={i}>
+                  <td><span className="tag">{r.action}</span></td>
+                  <td style={{ fontWeight: 550 }}>{r.name}</td>
+                  <td><span className={"pill " + (r.ok ? "success" : "failed")}>{r.ok ? "ok" : "error"}</span></td>
+                  <td style={{ color: "var(--text-dim)", fontSize: 12.5 }}>
+                    {r.message}
+                    {r.warnings && r.warnings.length > 0 && <div style={{ color: "var(--warning)" }}>{r.warnings.join("; ")}</div>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ============ App shell ============ */
 const NAV = [
   { sec: "Monitor" },
@@ -1069,12 +1129,13 @@ const NAV = [
   { sec: "Configure" },
   { id: "resources", label: "Resources", icon: "resources" },
   { id: "globals", label: "Globals", icon: "globals" },
+  { id: "jil", label: "Import JIL", icon: "edit" },
   { sec: "Admin", admin: true },
   { id: "users", label: "Users", icon: "users", admin: true },
   { id: "apikeys", label: "API keys", icon: "keys" },
   { id: "audit", label: "Audit log", icon: "audit", admin: true },
 ];
-const TITLES = { dashboard: "Dashboard", jobs: "Jobs", runs: "Run history", dag: "Workflow DAG", resources: "Virtual resources", globals: "Global variables", users: "Users", apikeys: "API keys", audit: "Audit log" };
+const TITLES = { dashboard: "Dashboard", jobs: "Jobs", runs: "Run history", dag: "Workflow DAG", resources: "Virtual resources", globals: "Global variables", jil: "Import JIL", users: "Users", apikeys: "API keys", audit: "Audit log" };
 
 function App() {
   const [me, setMe] = useState(undefined);
@@ -1093,7 +1154,7 @@ function App() {
   if (me === null) return <Login onLoggedIn={setMe} />;
 
   const isAdmin = me.role === "admin";
-  const page = { dashboard: <Dashboard go={setTab} />, jobs: <JobsPage />, runs: <RunsPage />, dag: <DagPage />, resources: <ResourcesPage />, globals: <GlobalsPage />, users: <UsersPage />, apikeys: <ApiKeysPage />, audit: <AuditPage /> }[tab];
+  const page = { dashboard: <Dashboard go={setTab} />, jobs: <JobsPage />, runs: <RunsPage />, dag: <DagPage />, resources: <ResourcesPage />, globals: <GlobalsPage />, jil: <JilImportPage />, users: <UsersPage />, apikeys: <ApiKeysPage />, audit: <AuditPage /> }[tab];
 
   return (
     <div className="app">

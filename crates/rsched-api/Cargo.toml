@@ -11,6 +11,7 @@ authors.workspace = true
 rsched-core = { path = "../rsched-core" }
 rsched-store = { path = "../rsched-store" }
 rsched-scheduler = { path = "../rsched-scheduler" }
+rsched-jil = { path = "../rsched-jil" }
 async-trait = { workspace = true }
 axum = { workspace = true }
 base64 = { workspace = true }
