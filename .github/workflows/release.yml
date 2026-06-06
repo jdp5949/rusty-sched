@@ -104,6 +104,7 @@ jobs:
     needs: build
     runs-on: macos-latest
     if: startsWith(github.ref, 'refs/tags/')
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
@@ -184,6 +185,7 @@ jobs:
     needs: build
     runs-on: windows-latest
     if: startsWith(github.ref, 'refs/tags/')
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -249,6 +251,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -274,6 +277,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -287,8 +291,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out
-          cargo generate-rpm -p crates/rusty-sched --target x86_64-unknown-linux-gnu || \
-            cargo generate-rpm -p rusty-sched --target x86_64-unknown-linux-gnu
+          cargo generate-rpm -p crates/rsched-bin --target x86_64-unknown-linux-gnu
           cp target/x86_64-unknown-linux-gnu/generate-rpm/*.rpm out/
       - uses: actions/upload-artifact@v4
         with:
@@ -301,7 +304,9 @@ jobs:
     name: Attach native installers to release
     needs: [release, mac-pkg, windows-msi, linux-deb, linux-rpm]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    # Always run so any installers that built get attached, even if one
+    # packaging job failed (they are best-effort / continue-on-error).
+    if: always() && startsWith(github.ref, 'refs/tags/')
     steps:
       - uses: actions/download-artifact@v4
         with:

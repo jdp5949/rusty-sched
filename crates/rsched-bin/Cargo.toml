@@ -32,3 +32,13 @@ tokio-stream = { workspace = true }
 tower-http = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+# Native .rpm packaging (cargo-generate-rpm). `--target` rewrites the
+# `target/release/...` source prefix to `target/<triple>/release/...`.
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/rusty-sched", dest = "/usr/bin/rusty-sched", mode = "755" },
+    { source = "installers/systemd/rusty-sched-server.service", dest = "/usr/lib/systemd/system/rusty-sched-server.service", mode = "644" },
+    { source = "README.md", dest = "/usr/share/doc/rusty-sched/README.md", mode = "644" },
+    { source = "LICENSE", dest = "/usr/share/doc/rusty-sched/LICENSE", mode = "644" },
+]
