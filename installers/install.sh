@@ -24,7 +24,9 @@ detect_target() {
     case "$os" in
         Linux)
             case "$arch" in
-                x86_64|amd64)  echo "x86_64-unknown-linux-gnu" ;;
+                # Prefer the static musl build on x86_64 so it runs on any
+                # glibc version (the gnu build needs the builder's glibc).
+                x86_64|amd64)  echo "x86_64-unknown-linux-musl" ;;
                 aarch64|arm64) echo "aarch64-unknown-linux-gnu" ;;
                 *) err "unsupported Linux arch: $arch" ;;
             esac
